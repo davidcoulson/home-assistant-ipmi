@@ -5,6 +5,7 @@ import voluptuous as vol
 
 from homeassistant.const import CONF_DEVICE_ID, CONF_DOMAIN, CONF_TYPE
 from homeassistant.core import Context, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.typing import ConfigType, TemplateVarsType
@@ -36,8 +37,12 @@ async def async_get_actions(
         CONF_DEVICE_ID: device_id,
         CONF_DOMAIN: DOMAIN,
     }
-    user_available_commands: set[str] = get_ipmi_server(hass, entry_id)[USER_AVAILABLE_COMMANDS]
-    
+    try:
+        server = get_ipmi_server(hass, entry_id)
+    except HomeAssistantError:
+        return []
+    user_available_commands: set[str] = server[USER_AVAILABLE_COMMANDS]
+
     return [
         {CONF_TYPE: command_name} | base_action
         for command_name in user_available_commands
@@ -53,7 +58,9 @@ async def async_call_action_from_config(
     device_action_name: str = config[CONF_TYPE]
     device_id: str = config[CONF_DEVICE_ID]
     entry_id = _get_entry_id_from_device_id(hass, device_id)
-    data: IpmiServer =  get_ipmi_server(hass, entry_id)[IPMI_DATA]
+    if entry_id is None:
+        raise HomeAssistantError("No IPMI config entry found for this device")
+    data: IpmiServer = get_ipmi_server(hass, entry_id)[IPMI_DATA]
 
     command = getattr(data, device_action_name)
     await async_run_chassis_command(hass, command)
@@ -62,4 +69,8 @@ def _get_entry_id_from_device_id(hass: HomeAssistant, device_id: str) -> str | N
     device_registry = dr.async_get(hass)
     if (device := device_registry.async_get(device_id)) is None:
         return None
-    return next(entry for entry in device.config_entries)
+    for entry_id in device.config_entries:
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is not None and entry.domain == DOMAIN:
+            return entry_id
+    return None

@@ -965,3 +965,85 @@ def test_rmcp_repository_failure_still_invalidates_session(harness):
     ) as invalidate:
         assert srv._get_from_rmcp_full() is None
     invalidate.assert_called_once_with()
+
+
+@pytest.fixture
+def device_actions():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    namespace = dict(vars(__import__("const")))
+    namespace.update(
+        CONF_TYPE="type", CONF_DEVICE_ID="device_id", CONF_DOMAIN="domain",
+        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        dr=SimpleNamespace(async_get=lambda hass: hass.registry),
+        async_run_chassis_command=AsyncMock(),
+    )
+    load_definitions("helpers.py", ["get_ipmi_server"], namespace)
+    load_definitions("device_action.py", [
+        "_get_entry_id_from_device_id", "async_get_actions", "async_call_action_from_config"
+    ], namespace)
+    return namespace
+
+
+def action_hass(data, entry_ids=("other", "ipmi")):
+    from types import SimpleNamespace
+
+    entries = {"other": SimpleNamespace(domain="other"), "ipmi": SimpleNamespace(domain="ipmi")}
+    return SimpleNamespace(
+        data=data,
+        registry=SimpleNamespace(async_get=lambda device: SimpleNamespace(config_entries=entry_ids)),
+        config_entries=SimpleNamespace(async_get_entry=entries.get),
+    )
+
+
+@pytest.mark.parametrize("runtime", [{}, {"ipmi": {}}, {"ipmi": {"servers": {}}}])
+def test_unloaded_device_actions_are_controlled(device_actions, runtime):
+    import asyncio
+
+    hass = action_hass(runtime)
+    assert asyncio.run(device_actions["async_get_actions"](hass, "device")) == []
+    with pytest.raises(device_actions["HomeAssistantError"], match="unavailable"):
+        asyncio.run(device_actions["async_call_action_from_config"](
+            hass, {"type": "power_on", "device_id": "device"}, {}, None
+        ))
+
+
+@pytest.mark.parametrize("entry_ids", [(), ("missing",), ("other",)])
+def test_device_without_ipmi_entry(device_actions, entry_ids):
+    import asyncio
+
+    hass = action_hass({}, entry_ids)
+    assert asyncio.run(device_actions["async_get_actions"](hass, "device")) == []
+    with pytest.raises(device_actions["HomeAssistantError"], match="No IPMI config entry"):
+        asyncio.run(device_actions["async_call_action_from_config"](
+            hass, {"type": "power_on", "device_id": "device"}, {}, None
+        ))
+
+
+def test_merged_device_uses_ipmi_entry(device_actions):
+    import asyncio
+    from types import SimpleNamespace
+
+    command = MagicMock()
+    runtime = {
+        device_actions["IPMI_DATA"]: SimpleNamespace(power_on=command),
+        device_actions["USER_AVAILABLE_COMMANDS"]: {"power_on"},
+    }
+    hass = action_hass({"ipmi": {"servers": {"ipmi": runtime}}})
+    assert device_actions["_get_entry_id_from_device_id"](hass, "device") == "ipmi"
+    assert asyncio.run(device_actions["async_get_actions"](hass, "device")) == [
+        {"type": "power_on", "domain": "ipmi", "device_id": "device"}
+    ]
+    asyncio.run(device_actions["async_call_action_from_config"](
+        hass, {"type": "power_on", "device_id": "device"}, {}, None
+    ))
+    device_actions["async_run_chassis_command"].assert_awaited_once_with(hass, command)
+
+
+def test_missing_device_has_no_actions(device_actions):
+    import asyncio
+
+    hass = action_hass({})
+    hass.registry.async_get = lambda device: None
+    assert asyncio.run(device_actions["async_get_actions"](hass, "missing")) == []
