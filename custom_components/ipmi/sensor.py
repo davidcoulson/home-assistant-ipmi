@@ -186,7 +186,11 @@ def create_entity_sensors(
     """Create entities for newly discovered sensors, respecting options filters."""
     coordinator = ipmi_data[COORDINATOR]
     data = ipmi_data[IPMI_DATA]
-    status = coordinator.data
+    # Discovery is signalled after the server stores its new snapshot, before
+    # the coordinator publishes it. Read that snapshot for this notification.
+    status = data.device_info
+    if status is None:
+        return
     entities = []
 
     enabled_types = set(

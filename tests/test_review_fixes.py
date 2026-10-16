@@ -877,3 +877,42 @@ def test_auth_evidence_survives_failed_fallback_and_resets_on_success(harness):
     with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value={"success": True}):
         srv.update()
     assert not srv.auth_failed
+
+
+def test_discovery_uses_current_snapshot_before_coordinator_publication(harness):
+    from types import SimpleNamespace
+
+    srv = harness._make_server(sensor_types=["temperature"])
+    coordinator = SimpleNamespace(data=SimpleNamespace(sensors={}, states={}))
+    entry = SimpleNamespace(options={"sensor_types": ["temperature"], "create_energy_sensors": False})
+    namespace = dict(vars(__import__("const")))
+    namespace.update(
+        callback=lambda fn: fn,
+        as_str_list=test_util.util.as_str_list,
+        energy_sensors_enabled=test_util.util.energy_sensors_enabled,
+        _DYNAMIC_SENSOR_SPECS={"temperature": {}},
+        _LOGGER=MagicMock(),
+        SensorEntityDescription=lambda **kwargs: SimpleNamespace(**kwargs),
+        IpmiSensor=lambda coordinator, description, *args: description.key,
+    )
+    load_definitions("sensor.py", ["create_entity_sensors"], namespace)
+    added = []
+    runtime = {namespace["COORDINATOR"]: coordinator, namespace["IPMI_DATA"]: srv}
+
+    def dispatch(*args):
+        assert coordinator.data.sensors == {}
+        namespace["create_entity_sensors"](
+            runtime, "entry1", lambda entities, *args: added.extend(entities), entry
+        )
+
+    with patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv, "get_from_addon", return_value={
+            "success": True, "power_on": True,
+            "sensors": {"temperature": {"new_temp": "New Temp"}},
+            "states": {"new_temp": 30},
+        }
+    ), patch.object(harness._server_mod, "dispatcher_send", side_effect=dispatch):
+        srv.update()
+        assert added == ["new_temp"]
+        srv.update()
+    assert added == ["new_temp"]
