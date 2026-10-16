@@ -411,14 +411,13 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     )
     try:
         await hass.async_add_executor_job(ipmi_data.update)
+
+        if not (device_info := ipmi_data._device_info):
+            raise CannotConnect
+
+        return {"device_info": device_info}
     finally:
-        # update() caches an RMCP session; release it so the BMC slot is freed.
         await hass.async_add_executor_job(ipmi_data.close)
-
-    if not (device_info := ipmi_data._device_info):
-        raise CannotConnect
-
-    return {"device_info": device_info}
 
 
 def _format_host_port_alias(user_input: Mapping[str, Any]) -> str:

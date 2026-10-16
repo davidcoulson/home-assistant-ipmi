@@ -644,7 +644,9 @@ class IpmiServer:
 
     def close(self) -> None:
         """Release the cached RMCP session (call on unload)."""
-        with self._rmcp_lock:
+        # A cancelled executor await can leave a poll running. Wait for it
+        # before closing so it cannot open another session after cleanup.
+        with self._update_lock, self._rmcp_lock:
             self._invalidate_rmcp_session_unlocked()
 
     def connect(self) -> pyipmi.Ipmi:
@@ -689,7 +691,11 @@ class IpmiServer:
             ipmi.session.set_priv_level(self._privilege_level)
 
         ipmi.target = pyipmi.Target(ipmb_address=0x20)
-        ipmi.open()
+        try:
+            ipmi.open()
+        except Exception:
+            self._close_ipmi(ipmi)
+            raise
         self._rmcp_ipmi = ipmi
         return ipmi
 

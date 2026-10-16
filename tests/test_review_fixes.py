@@ -649,3 +649,112 @@ def test_transport_settings_survive_flow_storage(harness):
     defaults = namespace["_advanced_defaults"]()
     assert defaults["allow_legacy_rmcp"] is True
     assert defaults["legacy_addon_query_auth"] is False
+
+
+@pytest.mark.parametrize("outcome", ["success", "empty", "error"])
+def test_validation_closes_temporary_server(harness, outcome):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    namespace = dict(vars(__import__("const")))
+    namespace.update({name: name.removeprefix("CONF_").lower() for name in (
+        "CONF_HOST", "CONF_PORT", "CONF_ALIAS", "CONF_USERNAME", "CONF_PASSWORD"
+    )})
+    server = MagicMock(_device_info=object() if outcome == "success" else None)
+    if outcome == "error":
+        server.update.side_effect = RuntimeError("poll failed")
+
+    async def executor(function):
+        return function()
+
+    namespace.update(
+        IpmiServer=lambda *args: server,
+        _validate_kg_key=lambda key: key,
+        effective_sensor_types=test_util.util.effective_sensor_types,
+        CannotConnect=RuntimeError,
+    )
+    load_definitions("config_flow.py", ["validate_input"], namespace)
+    hass = SimpleNamespace(async_add_executor_job=AsyncMock(side_effect=executor))
+    if outcome == "success":
+        assert asyncio.run(namespace["validate_input"](hass, {}))["device_info"]
+    else:
+        with pytest.raises(RuntimeError):
+            asyncio.run(namespace["validate_input"](hass, {}))
+    server.close.assert_called_once_with()
+    assert hass.async_add_executor_job.call_args.args == (server.close,)
+
+
+def test_failed_open_closes_partial_connection(harness):
+    srv = harness._make_server()
+    ipmi = MagicMock()
+    ipmi.open.side_effect = RuntimeError("partial open")
+    with patch.object(harness._server_mod.pyipmi, "create_connection", return_value=ipmi):
+        with pytest.raises(RuntimeError, match="partial open"):
+            srv.connect()
+    ipmi.close.assert_called_once_with()
+    assert srv._rmcp_ipmi is None
+
+
+def test_failed_first_refresh_closes_server(harness):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    namespace = dict(vars(__import__("const")))
+    namespace.update({name: name.removeprefix("CONF_").lower() for name in (
+        "CONF_HOST", "CONF_PORT", "CONF_ALIAS", "CONF_USERNAME", "CONF_PASSWORD",
+        "CONF_RESOURCES", "CONF_SCAN_INTERVAL"
+    )})
+    server = MagicMock()
+    coordinator = SimpleNamespace(
+        async_config_entry_first_refresh=AsyncMock(side_effect=RuntimeError("refresh failed"))
+    )
+
+    async def executor(function):
+        return function()
+
+    namespace.update(
+        IpmiData=dict, _ensure_entry_unique_id=lambda *args: None,
+        _normalize_options=dict, effective_sensor_types=test_util.util.effective_sensor_types,
+        IpmiServer=lambda *args: server, IpmiCoordinator=lambda *args: coordinator,
+    )
+    load_definitions("__init__.py", ["async_setup_entry"], namespace)
+    hass = SimpleNamespace(data={}, async_add_executor_job=AsyncMock(side_effect=executor))
+    entry = SimpleNamespace(data={}, options={}, entry_id="entry")
+    with pytest.raises(RuntimeError, match="refresh failed"):
+        asyncio.run(namespace["async_setup_entry"](hass, entry))
+    server.close.assert_called_once_with()
+
+
+def test_close_waits_for_surviving_poll(harness):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    srv = harness._make_server()
+    started, release, closing = Event(), Event(), Event()
+    ipmi = MagicMock()
+
+    def poll():
+        started.set()
+        assert release.wait(5)
+        srv._rmcp_ipmi = ipmi
+
+    def close():
+        closing.set()
+        srv.close()
+
+    with patch.object(srv, "_update_unlocked", side_effect=poll):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            worker = executor.submit(srv.update)
+            try:
+                assert started.wait(5)
+                cleanup = executor.submit(close)
+                assert closing.wait(5)
+                assert not cleanup.done()
+            finally:
+                release.set()
+            worker.result(timeout=5)
+            cleanup.result(timeout=5)
+    ipmi.close.assert_called_once_with()
+    assert srv._rmcp_ipmi is None

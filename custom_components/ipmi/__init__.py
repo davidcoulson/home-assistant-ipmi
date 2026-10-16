@@ -199,7 +199,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = IpmiCoordinator(hass, scan_interval, data)
 
     # Fetch initial data so we have data when entities subscribe
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except BaseException:
+        await hass.async_add_executor_job(data.close)
+        raise
     deviceInfo = coordinator.data
 
     _LOGGER.debug("IPMI Sensors Available: %s", deviceInfo)
