@@ -185,11 +185,12 @@ def redact_connection_secrets(
 ) -> str:
     """Remove password / kg key substrings from log-facing error text."""
     redacted = message
+    variants = set()
     for secret in (password, kg_key):
         if secret:
-            # requests puts the URL-encoded form in its exception text.
-            for variant in {str(secret), quote(str(secret)), quote_plus(str(secret))}:
-                redacted = redacted.replace(variant, "***")
+            variants.update((str(secret), quote(str(secret), safe=""), quote_plus(str(secret))))
+    for variant in sorted(variants, key=len, reverse=True):
+        redacted = redacted.replace(variant, "***")
     return redacted
 
 

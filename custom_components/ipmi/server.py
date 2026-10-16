@@ -134,6 +134,12 @@ class IpmiServer:
         self._rmcp_lock = threading.Lock()
 
     @property
+    def _addon_origin(self) -> str:
+        """Return an endpoint origin without userinfo, query, or path secrets."""
+        parts = urlsplit(self._addon_url)
+        return f"{parts.scheme}://{parts.hostname}"
+
+    @property
     def name(self) -> str:
         """Return the name of the IPMI server."""
         return self._alias or f"IPMI-{self._host}"
@@ -240,7 +246,7 @@ class IpmiServer:
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.debug(
                 "Addon meta probe at %s failed (%s); continuing with legacy behavior",
-                url,
+                self._addon_origin,
                 type(err).__name__,
             )
 
@@ -255,7 +261,7 @@ class IpmiServer:
             if time.monotonic() < self._addon_skip_until:
                 _LOGGER.debug(
                     "Skipping addon probe for %s until cooldown ends",
-                    self._addon_url,
+                    self._addon_origin,
                 )
                 return False
             # Cooldown expired — allow another probe attempt.
@@ -320,15 +326,7 @@ class IpmiServer:
         if path is not None:
             url = f"{url}/{path}"
 
-        _LOGGER.debug(
-            "Addon request url=%s host=%s port=%s user=%s path=%s post=%s",
-            url,
-            self._host,
-            self._port,
-            self._username,
-            path,
-            self._addon_use_post,
-        )
+        _LOGGER.debug("Addon request origin=%s path=%s", self._addon_origin, path)
 
         try:
             if self._addon_use_post:
@@ -351,7 +349,7 @@ class IpmiServer:
                     # POST not usable for this addon build — stick to GET.
                     self._addon_use_post = False
                     _LOGGER.debug(
-                        "Addon POST not usable; using GET for %s", self._addon_url
+                        "Addon POST not usable; using GET for %s", self._addon_origin
                     )
                 except Exception:  # pylint: disable=broad-except
                     self._addon_use_post = False
@@ -370,15 +368,11 @@ class IpmiServer:
                 self._ingest_addon_capabilities(response)
             return response
         except Exception as err:  # pylint: disable=broad-except
-            err_msg = redact_connection_secrets(
-                str(err), self._password, self._kg_key
-            )
             self._record_addon_transport_failure()
             _LOGGER.warning(
-                "ipmi-server addon unavailable at %s (%s: %s); falling back to RMCP",
-                self._addon_url,
+                "ipmi-server addon unavailable at %s (%s)",
+                self._addon_origin,
                 type(err).__name__,
-                err_msg,
             )
             return None
 
@@ -436,7 +430,9 @@ class IpmiServer:
                 self._invalidate_rmcp_session_unlocked()
                 raise
         except Exception as err:  # pylint: disable=broad-except
-            self._last_rmcp_error = f"{type(err).__name__}: {err}"
+            self._last_rmcp_error = redact_connection_secrets(
+                f"{type(err).__name__}: {err}", self._password, self._kg_key
+            )
             _LOGGER.warning(
                 "RMCP power-only poll for IPMI server %s failed: %s",
                 self._host,
@@ -537,7 +533,9 @@ class IpmiServer:
                 raise
 
         except Exception as err:  # pylint: disable=broad-except
-            self._last_rmcp_error = f"{type(err).__name__}: {err}"
+            self._last_rmcp_error = redact_connection_secrets(
+                f"{type(err).__name__}: {err}", self._password, self._kg_key
+            )
             _LOGGER.warning(
                 "RMCP connection to IPMI server %s failed: %s",
                 self._host,
@@ -570,7 +568,7 @@ class IpmiServer:
                         continue
                     raise IpmiChassisCommandError(
                         f"RMCP chassis command failed for {self._host}: "
-                        f"{type(err).__name__}: {err}"
+                        f"{type(err).__name__}"
                     ) from err
 
     def _invalidate_rmcp_session_unlocked(self) -> None:
@@ -591,10 +589,9 @@ class IpmiServer:
             ipmi.close()
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.debug(
-                "Error closing IPMI connection to %s: %s: %s",
+                "Error closing IPMI connection to %s: %s",
                 self._host,
                 type(err).__name__,
-                err,
             )
 
     def close(self) -> None:
@@ -653,7 +650,9 @@ class IpmiServer:
             if json is not None:
                 if not json.get("success"):
                     message = str(json.get("message", ""))
-                    _LOGGER.error(message)
+                    _LOGGER.error(
+                        "%s", redact_connection_secrets(message, self._password, self._kg_key)
+                    )
                     self.auth_failed = looks_like_auth_error(message)
                     # Unsuccessful addon payload: try RMCP unless addon-only.
                     json = None
@@ -773,7 +772,7 @@ class IpmiServer:
                 "send_command requires the ipmi-server addon or standalone HTTP API; "
                 f"addon unreachable or backend preference is "
                 f"'{self._backend_preference}' (last backend={self.last_backend}). "
-                f"Command not sent: {command}"
+                "Command could not be sent."
             )
             if ignore_errors:
                 _LOGGER.error(err)
@@ -781,9 +780,7 @@ class IpmiServer:
             raise RuntimeError(err)
 
         if not addon_action_succeeded(response):
-            err = "Error executing command: {}, Error: {}".format(
-                command, response.get("output", response)
-            )
+            err = "Addon command failed; check addon status and connection settings"
             if ignore_errors:
                 _LOGGER.error(err)
                 return ""

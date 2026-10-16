@@ -382,7 +382,7 @@ class TestIpmiServerLogic:
         with patch.object(
             srv, "_connect_unlocked", side_effect=OSError("connection refused")
         ):
-            with pytest.raises(chassis_error, match="connection refused"):
+            with pytest.raises(chassis_error, match="OSError"):
                 srv.run_rmcp_command(0)
 
     def test_chassis_does_not_rmcp_when_addon_succeeds(self) -> None:
