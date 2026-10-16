@@ -132,3 +132,54 @@ def test_default_rmcp_policy_warns_on_downgrade(harness, caplog):
     assert srv._should_try_rmcp()
     srv.connect()
     assert "legacy IPMI 1.5" in caplog.text
+
+
+def test_meta_timeout_tuple_and_redirects(harness):
+    srv = harness._make_server()
+    response = MagicMock(status_code=404)
+    with patch.object(harness._server_mod.requests, "get", return_value=response) as get:
+        srv._probe_addon_meta()
+    assert get.call_args.kwargs["timeout"] == (5, 10)
+    assert get.call_args.kwargs["allow_redirects"] is False
+
+
+def test_poll_uses_remaining_budget_and_skips_late_fallback(harness):
+    srv = harness._make_server()
+    clock = [100.0]
+
+    def slow_addon(*args):
+        assert srv._http_timeout() == (5, 50)
+        clock[0] += 56
+        return None
+
+    with patch.object(harness._server_mod.time, "monotonic", side_effect=lambda: clock[0]), patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", side_effect=slow_addon), patch.object(srv, "get_from_rmcp") as rmcp:
+        with pytest.raises(TimeoutError, match="deadline"):
+            srv.update()
+    rmcp.assert_not_called()
+    assert srv._update_lock.acquire(blocking=False)
+    srv._update_lock.release()
+
+
+def test_surviving_worker_prevents_overlapping_poll(harness):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+
+    srv = harness._make_server()
+    started, release = Event(), Event()
+
+    def blocked_poll():
+        started.set()
+        assert release.wait(5)
+
+    with patch.object(srv, "_update_unlocked", side_effect=blocked_poll) as poll:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(srv.update)
+            try:
+                assert started.wait(5)
+                assert not future.cancel()
+                with pytest.raises(RuntimeError, match="still in flight"):
+                    srv.update()
+                assert poll.call_count == 1
+            finally:
+                release.set()
+            future.result(timeout=5)

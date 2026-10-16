@@ -34,6 +34,7 @@ from .const import (
     DEFAULT_HTTP_CONNECT_TIMEOUT,
     DEFAULT_HTTP_TIMEOUT,
     DEFAULT_SENSOR_TYPES,
+    DEFAULT_UPDATE_BUDGET,
     IPMI_NEW_SENSOR_SIGNAL,
     SENSOR_TYPES,
 )
@@ -135,6 +136,8 @@ class IpmiServer:
         # Reused RMCP session (reconnected on error).
         self._rmcp_ipmi: pyipmi.Ipmi | None = None
         self._rmcp_lock = threading.Lock()
+        self._update_lock = threading.Lock()
+        self._poll_context = threading.local()
 
     @property
     def _addon_origin(self) -> str:
@@ -238,7 +241,7 @@ class IpmiServer:
         self._addon_meta_probed = True
         url = f"{self._addon_url}/{ADDON_META_PATH}"
         try:
-            http_resp = requests.get(url, timeout=10, allow_redirects=False)
+            http_resp = requests.get(url, timeout=self._http_timeout(max_read=10), allow_redirects=False)
             if http_resp.status_code in {404, 405}:
                 return
             http_resp.raise_for_status()
@@ -342,7 +345,7 @@ class IpmiServer:
                         json=params,
                         headers=headers,
                         allow_redirects=False,
-                        timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
+                        timeout=self._http_timeout(),
                     )
                     if http_resp.status_code not in _POST_UNSUPPORTED_STATUSES:
                         http_resp.raise_for_status()
@@ -365,7 +368,7 @@ class IpmiServer:
                 params=params,
                 headers=headers,
                 allow_redirects=False,
-                timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
+                timeout=self._http_timeout(),
             )
             http_resp.raise_for_status()
             response = http_resp.json()
@@ -496,6 +499,7 @@ class IpmiServer:
                     )
                 else:
                     for s in iter_fct():
+                        self._remaining_poll_time()
                         name = getattr(s, "device_id_string", None)
                         id_string = generate_sensor_id(name) if name else name
 
@@ -649,7 +653,32 @@ class IpmiServer:
         self._rmcp_ipmi = ipmi
         return ipmi
 
+    def _remaining_poll_time(self) -> float:
+        """Check the shared budget between blocking backend operations."""
+        deadline = getattr(self._poll_context, "deadline", None)
+        remaining = DEFAULT_UPDATE_BUDGET if deadline is None else deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("IPMI poll deadline exceeded")
+        return remaining
+
+    def _http_timeout(self, *, max_read: float = DEFAULT_HTTP_TIMEOUT) -> tuple[float, float]:
+        """Budget connect and read phases within the remaining poll time."""
+        remaining = self._remaining_poll_time()
+        connect = min(DEFAULT_HTTP_CONNECT_TIMEOUT, remaining / 2)
+        return connect, min(max_read, remaining - connect)
+
     def update(self) -> None:
+        """Allow only one poll, even if an executor await has been cancelled."""
+        if not self._update_lock.acquire(blocking=False):
+            raise RuntimeError("Previous IPMI poll is still in flight")
+        self._poll_context.deadline = time.monotonic() + DEFAULT_UPDATE_BUDGET
+        try:
+            self._update_unlocked()
+        finally:
+            del self._poll_context.deadline
+            self._update_lock.release()
+
+    def _update_unlocked(self) -> None:
         """Refresh device info from the preferred backend(s)."""
         info = None
         self.auth_failed = False
@@ -675,18 +704,21 @@ class IpmiServer:
                     self.last_backend = BACKEND_ADDON
 
             if json is None and self._should_try_rmcp():
+                self._remaining_poll_time()
                 json = self.get_from_rmcp()
                 if json is not None:
                     self.last_backend = BACKEND_RMCP
                 else:
                     self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
         elif self._should_try_rmcp():
+            self._remaining_poll_time()
             json = self.get_from_rmcp()
             if json is not None:
                 self.last_backend = BACKEND_RMCP
             else:
                 self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
 
+        self._remaining_poll_time()
         if json is not None:
             info = IpmiDeviceInfo()
             info.device = json.get("device") if isinstance(json.get("device"), dict) else {}
