@@ -52,6 +52,7 @@ from .util import (
     power_only_poll,
     redact_connection_secrets,
     update_addon_capabilities,
+    substitute_command_fields,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -839,10 +840,16 @@ class IpmiServer:
 
     def send_command(self, command: str, ignore_errors: bool) -> str:
         """Send a custom ipmitool-style command through the addon only."""
-        cmd = command.replace("$host$", self._host or "")
-        cmd = cmd.replace("$port$", str(self._port))
-        cmd = cmd.replace("$username$", self._username or "")
-        cmd = cmd.replace("$password$", self._password or "")
+        try:
+            cmd = substitute_command_fields(command, {
+                "host": self._host, "port": self._port,
+                "username": self._username, "password": self._password,
+            })
+        except ValueError as err:
+            if ignore_errors:
+                _LOGGER.error("%s", err)
+                return ""
+            raise
 
         # Pass the command in the request body/params (not baked into the path)
         # so POST keeps the ipmitool string out of the URL when supported.

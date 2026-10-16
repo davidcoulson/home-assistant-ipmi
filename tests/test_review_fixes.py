@@ -323,3 +323,32 @@ def test_energy_restore_validates_total(energy_sensor, restored, expected):
     sensor.async_get_last_sensor_data = AsyncMock(return_value=SimpleNamespace(native_value=restored))
     asyncio.run(sensor.async_added_to_hass())
     assert sensor._energy_kwh == expected
+
+
+@pytest.mark.parametrize("field", ["host", "port", "username", "password"])
+@pytest.mark.parametrize("value", ["correct horse", 'p"word', "p'word", "p\tword", "p\nword", "p -H attacker.invalid"])
+def test_unsafe_command_field_rejected_before_request(harness, field, value):
+    srv = harness._make_server(**{field: value})
+    with patch.object(srv, "get_from_addon") as addon:
+        with pytest.raises(ValueError, match="whitespace or quotes"):
+            srv.send_command(f"-P ${field}$ bmc info", False)
+        assert srv.send_command(f"-P ${field}$ bmc info", True) == ""
+    addon.assert_not_called()
+
+
+def test_substitution_is_single_pass():
+    assert test_util.util.substitute_command_fields("-U $username$", {"username": "$password$"}) == "-U $password$"
+
+
+def test_accepted_substitution_matches_addon_csv_parser():
+    import json
+    import shutil
+    import subprocess
+
+    if not shutil.which("php"):
+        pytest.skip("PHP is needed to verify the external addon parser")
+    fields = {"host": "bmc.example", "port": "623", "username": "a$word", "password": "p\\word+%&é"}
+    cmd = test_util.util.substitute_command_fields("-H $host$ -p $port$ -U $username$ -P $password$ bmc info", fields)
+    # Execute only the documented parser, never an IPMI process.
+    result = subprocess.run(["php", "-r", '''echo json_encode(str_getcsv($argv[1], ' ', '"', ''));''', '--', cmd], check=True, capture_output=True, text=True)
+    assert json.loads(result.stdout) == ["-H", fields["host"], "-p", "623", "-U", fields["username"], "-P", fields["password"], "bmc", "info"]
