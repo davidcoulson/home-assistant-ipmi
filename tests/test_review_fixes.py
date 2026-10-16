@@ -916,3 +916,52 @@ def test_discovery_uses_current_snapshot_before_coordinator_publication(harness)
         assert added == ["new_temp"]
         srv.update()
     assert added == ["new_temp"]
+
+
+@pytest.mark.parametrize("failure", [ValueError("bad conversion"), TimeoutError("sensor timeout")])
+def test_rmcp_isolates_bad_sensor_and_skips_disabled_category(harness, failure):
+    from types import SimpleNamespace
+
+    srv = harness._make_server(sensor_types=["temperature"])
+    ipmi = MagicMock()
+    ipmi.get_chassis_status.return_value.power_on = True
+    full = harness._server_mod.pyipmi.sdr.SDR_TYPE_FULL_SENSOR_RECORD
+
+    def sensor(name, number, category):
+        return SimpleNamespace(
+            type=full, device_id_string=name, number=number, sensor_type_code=category,
+            units_2=None, convert_sensor_raw_to_value=lambda value: value,
+        )
+
+    bad = sensor("Bad Temp", 1, 1)
+    good = sensor("Good Temp", 2, 1)
+    excluded = sensor("Voltage", 3, 2)
+    ipmi.sdr_repository_entries.return_value = [bad, good, excluded]
+
+    def reading(number):
+        if number == 1:
+            raise failure
+        if number == 3:
+            pytest.fail("Disabled voltage sensor must not be read")
+        return 30, []
+
+    ipmi.get_sensor_reading.side_effect = reading
+    with patch.object(srv, "_connect_unlocked", return_value=ipmi), patch.object(
+        srv, "_invalidate_rmcp_session_unlocked"
+    ) as invalidate:
+        result = srv._get_from_rmcp_full()
+    assert result["power_on"] is True
+    assert result["states"] == {"bad_temp": None, "good_temp": 30}
+    assert result["sensors"]["voltage"] == {}
+    invalidate.assert_not_called()
+
+
+def test_rmcp_repository_failure_still_invalidates_session(harness):
+    srv = harness._make_server(sensor_types=["temperature"])
+    ipmi = MagicMock()
+    ipmi.sdr_repository_entries.side_effect = RuntimeError("repository unavailable")
+    with patch.object(srv, "_connect_unlocked", return_value=ipmi), patch.object(
+        srv, "_invalidate_rmcp_session_unlocked"
+    ) as invalidate:
+        assert srv._get_from_rmcp_full() is None
+    invalidate.assert_called_once_with()

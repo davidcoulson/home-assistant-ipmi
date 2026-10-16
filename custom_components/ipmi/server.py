@@ -538,13 +538,19 @@ class IpmiServer:
                 else:
                     for s in iter_fct():
                         self._remaining_poll_time()
-                        name = getattr(s, "device_id_string", None)
-                        id_string = generate_sensor_id(name) if name else name
-
-                        sensor_type = getattr(s, "sensor_type_code", None)
+                        category = None
+                        id_string = None
                         value = None
-
                         try:
+                            category = categorize_rmcp_sensor(
+                                getattr(s, "sensor_type_code", None),
+                                getattr(s, "units_2", None),
+                            )
+                            if category not in self._sensor_types:
+                                continue
+                            name = getattr(s, "device_id_string", None)
+                            id_string = generate_sensor_id(name) if name else name
+
                             if s.type is pyipmi.sdr.SDR_TYPE_FULL_SENSOR_RECORD:
                                 (value, _states) = ipmi.get_sensor_reading(s.number)
                                 if value is not None:
@@ -553,20 +559,11 @@ class IpmiServer:
                             elif s.type is pyipmi.sdr.SDR_TYPE_COMPACT_SENSOR_RECORD:
                                 (value, _states) = ipmi.get_sensor_reading(s.number)
 
-                        except pyipmi.errors.CompletionCodeError as e:
-                            if s.type in (
-                                pyipmi.sdr.SDR_TYPE_COMPACT_SENSOR_RECORD,
-                                pyipmi.sdr.SDR_TYPE_FULL_SENSOR_RECORD,
-                            ):
-                                _LOGGER.debug(
-                                    "0x{:04x} | {:3d} | {:18s} | ERR: CC=0x{:02x}".format(
-                                        s.id, s.number, s.device_id_string, e.cc
-                                    )
-                                )
-
-                        category = categorize_rmcp_sensor(
-                            sensor_type, getattr(s, "units_2", None)
-                        )
+                        except Exception as err:  # pylint: disable=broad-except
+                            value = None
+                            _LOGGER.debug(
+                                "RMCP sensor reading failed (%s)", type(err).__name__
+                            )
 
                         if category and id_string is not None:
                             if id_string in json["states"]:
