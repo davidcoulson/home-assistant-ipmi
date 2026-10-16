@@ -45,6 +45,7 @@ from .const import (
     CONF_CREATE_ENERGY_SENSORS,
     CONF_IGNORE_CHECKSUM_ERRORS,
     CONF_LEGACY_ADDON_QUERY_AUTH,
+    CONF_ALLOW_LEGACY_RMCP,
     CONF_MINIMAL_IPMI,
     CONF_POWER_OFF_DELAY,
     CONF_IPMI_SERVER_HOST,
@@ -209,6 +210,7 @@ _OPTION_KEYS = {
     CONF_SENSOR_TYPES,
     CONF_BACKEND_PREFERENCE,
     CONF_CREATE_ENERGY_SENSORS,
+    CONF_ALLOW_LEGACY_RMCP,
 }
 
 
@@ -247,6 +249,10 @@ def _advanced_schema(
                 CONF_ADDON_PARAMS,
                 default=defaults.get(CONF_ADDON_PARAMS) or "",
             ): cv.string,
+            vol.Optional(
+                CONF_ALLOW_LEGACY_RMCP,
+                default=defaults.get(CONF_ALLOW_LEGACY_RMCP, True),
+            ): _BOOLEAN_SELECTOR,
             vol.Optional(
                 CONF_BACKEND_PREFERENCE,
                 default=defaults.get(
@@ -293,6 +299,10 @@ def _options_schema(
                 default=defaults.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             ): vol.All(vol.Coerce(int), vol.Clamp(min=10, max=300)),
             vol.Optional(
+                CONF_ALLOW_LEGACY_RMCP,
+                default=defaults.get(CONF_ALLOW_LEGACY_RMCP, True),
+            ): _BOOLEAN_SELECTOR,
+            vol.Optional(
                 CONF_BACKEND_PREFERENCE,
                 default=defaults.get(CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE),
             ): _backend_preference_selector(),
@@ -319,6 +329,7 @@ def _options_schema(
 def _advanced_defaults() -> dict[str, Any]:
     """Default advanced values used when the advanced step is skipped."""
     return {
+        CONF_ALLOW_LEGACY_RMCP: True,
         CONF_LEGACY_ADDON_QUERY_AUTH: False,
         CONF_KG_KEY: DEFAULT_KG_KEY,
         CONF_PRIVILEGE_LEVEL: DEFAULT_PRIVILEGE_LEVEL,
@@ -349,6 +360,7 @@ def _entry_options_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
         normalized, default_types=DEFAULT_SENSOR_TYPES
     )
     return {
+        CONF_ALLOW_LEGACY_RMCP: normalized.get(CONF_ALLOW_LEGACY_RMCP, True),
         CONF_SENSOR_TYPES: sensor_types,
         CONF_BACKEND_PREFERENCE: normalized.get(
             CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE
@@ -382,6 +394,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             "addon_port": data.get(CONF_ADDON_PORT),
             "addon_interface": data.get(CONF_ADDON_INTERFACE),
             "addon_extra_params": data.get(CONF_ADDON_PARAMS),
+            CONF_ALLOW_LEGACY_RMCP: data.get(CONF_ALLOW_LEGACY_RMCP, True),
             CONF_LEGACY_ADDON_QUERY_AUTH: data.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
             CONF_IGNORE_CHECKSUM_ERRORS: data.get(CONF_IGNORE_CHECKSUM_ERRORS, False),
             "backend_preference": data.get(

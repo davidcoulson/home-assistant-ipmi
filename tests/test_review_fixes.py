@@ -113,3 +113,22 @@ def test_diagnostics_redacts_sensitive_fields(harness):
     assert result["entry"]["data"]["ipmi_server_host"] == "REDACTED"
     assert result["entry"]["data"]["addon_extra_params"] == "REDACTED"
     assert result["entry"]["options"]["addon_extra_params"] == "REDACTED"
+
+
+@pytest.mark.parametrize("secure", [{"addon_interface": "lanplus"}, {"kg_key": "key"}])
+def test_strict_rmcp_policy(harness, secure):
+    srv = harness._make_server(allow_legacy_rmcp=False, **secure)
+    assert not srv._should_try_rmcp()
+    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value=None), patch.object(srv, "get_from_rmcp") as rmcp:
+        srv.update()
+    rmcp.assert_not_called()
+    with pytest.raises(harness._server_mod.IpmiChassisCommandError, match="policy"):
+        srv.connect()
+
+
+def test_default_rmcp_policy_warns_on_downgrade(harness, caplog):
+    srv = harness._make_server(addon_interface="lanplus")
+    srv._rmcp_ipmi = MagicMock()
+    assert srv._should_try_rmcp()
+    srv.connect()
+    assert "legacy IPMI 1.5" in caplog.text

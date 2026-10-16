@@ -38,7 +38,8 @@
           "addon_interface": "ipmitool interface",
           "addon_extra_params": "Extra ipmitool parameters",
           "backend_preference": "Connection backend preference",
-          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Optional. Requires the ipmi-server addon; not supported by the python-ipmi fallback.",
@@ -84,7 +85,8 @@
           "addon_interface": "ipmitool interface",
           "addon_extra_params": "Extra ipmitool parameters",
           "backend_preference": "Connection backend preference",
-          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "backend_preference": "auto = try addon first then RMCP (historical default). rmcp = python-ipmi only (skips addon probes). Warning: the send_command service requires the addon and will not work with rmcp."
@@ -165,7 +167,8 @@
           "sensor_types": "Sensor types to discover",
           "backend_preference": "Connection backend preference",
           "create_energy_sensors": "Create energy sensors from power readings",
-          "power_off_delay": "Power switch off delay (seconds)"
+          "power_off_delay": "Power switch off delay (seconds)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "sensor_types": "Only selected types are created for newly discovered sensors. Leave empty for power-only monitoring on limited BMCs (for example Sipeed NanoKVM).",

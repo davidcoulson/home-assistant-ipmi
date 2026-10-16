@@ -29,6 +29,7 @@ from .const import (
     BACKEND_RMCP,
     CONF_IGNORE_CHECKSUM_ERRORS,
     CONF_LEGACY_ADDON_QUERY_AUTH,
+    CONF_ALLOW_LEGACY_RMCP,
     DEFAULT_BACKEND_PREFERENCE,
     DEFAULT_HTTP_CONNECT_TIMEOUT,
     DEFAULT_HTTP_TIMEOUT,
@@ -102,6 +103,8 @@ class IpmiServer:
         self._legacy_addon_query_auth = connection_data.get(
             CONF_LEGACY_ADDON_QUERY_AUTH, False
         )
+        self._allow_legacy_rmcp = connection_data.get(CONF_ALLOW_LEGACY_RMCP, True)
+        self._warned_rmcp_downgrade = False
         self._warned_insecure_http = False
         self._ignore_checksum_errors = connection_data.get(
             CONF_IGNORE_CHECKSUM_ERRORS, False
@@ -270,7 +273,10 @@ class IpmiServer:
 
     def _should_try_rmcp(self) -> bool:
         """Whether RMCP fallback / primary is allowed."""
-        return self._backend_preference != BACKEND_PREFERENCE_ADDON
+        return self._backend_preference != BACKEND_PREFERENCE_ADDON and (
+            self._allow_legacy_rmcp
+            or not (self._addon_interface == "lanplus" or self._kg_key)
+        )
 
     def _record_addon_transport_failure(self) -> None:
         """Track consecutive addon transport failures for auto-mode short-circuit."""
@@ -606,6 +612,15 @@ class IpmiServer:
 
     def _connect_unlocked(self) -> pyipmi.Ipmi:
         """Return a (re)used RMCP session. Caller must hold ``_rmcp_lock``."""
+        if not self._should_try_rmcp():
+            raise IpmiChassisCommandError("Legacy RMCP is disabled by connection policy")
+        if (self._addon_interface == "lanplus" or self._kg_key) and not self._warned_rmcp_downgrade:
+            _LOGGER.warning(
+                "Using legacy IPMI 1.5 RMCP for %s; lanplus encryption and Kg key "
+                "authentication are unavailable. Disable allow_legacy_rmcp to prevent this downgrade",
+                self._host,
+            )
+            self._warned_rmcp_downgrade = True
         if self._rmcp_ipmi is not None:
             return self._rmcp_ipmi
 

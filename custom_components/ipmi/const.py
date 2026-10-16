@@ -141,3 +141,6 @@ DEFAULT_MINIMAL_IPMI = False
 
 # Explicit compatibility mode for addons without secret header support.
 CONF_LEGACY_ADDON_QUERY_AUTH = "legacy_addon_query_auth"
+
+# Preserve legacy fallback by default; strict entries may disable it.
+CONF_ALLOW_LEGACY_RMCP = "allow_legacy_rmcp"

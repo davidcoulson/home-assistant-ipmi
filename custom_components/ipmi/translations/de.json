@@ -42,7 +42,8 @@
           "backend_preference": "Bevorzugtes Verbindungs-Backend",
           "create_energy_sensors": "Energiesensoren aus Leistungswerten erstellen",
           "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)",
-          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Optional. Erfordert das ipmi-server-Addon; wird vom python-ipmi-Fallback nicht unterstützt.",
@@ -82,7 +83,8 @@
           "backend_preference": "Bevorzugtes Verbindungs-Backend",
           "create_energy_sensors": "Energiesensoren aus Leistungswerten erstellen",
           "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)",
-          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Optional. Erfordert das ipmi-server-Addon; wird vom python-ipmi-Fallback nicht unterstützt.",
@@ -158,7 +160,8 @@
           "backend_preference": "Bevorzugtes Verbindungs-Backend",
           "create_energy_sensors": "Energiesensoren aus Leistungswerten erstellen",
           "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)",
-          "power_off_delay": "Verzögerung Schalter Aus (Sekunden)"
+          "power_off_delay": "Verzögerung Schalter Aus (Sekunden)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "sensor_types": "Nur ausgewählte Typen werden für neu entdeckte Sensoren angelegt. Standard entspricht dem bisherigen Verhalten (alle Typen).",
