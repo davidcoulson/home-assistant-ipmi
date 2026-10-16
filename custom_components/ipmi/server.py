@@ -729,7 +729,6 @@ class IpmiServer:
     def _update_unlocked(self) -> None:
         """Refresh device info from the preferred backend(s)."""
         info = None
-        self.auth_failed = False
         self._last_rmcp_error = None
         self.last_backend = BACKEND_NONE
 
@@ -746,7 +745,7 @@ class IpmiServer:
                         "%s",
                         redact_connection_secrets(message, self._password, self._kg_key),
                     )
-                    self.auth_failed = looks_like_auth_error(message)
+                    self.auth_failed = self.auth_failed or looks_like_auth_error(message)
                     # Unsuccessful addon payload: try RMCP unless addon-only.
                     json = None
                 else:
@@ -758,14 +757,14 @@ class IpmiServer:
                 if json is not None:
                     self.last_backend = BACKEND_RMCP
                 else:
-                    self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
+                    self.auth_failed = self.auth_failed or looks_like_auth_error(self._last_rmcp_error)
         elif self._should_try_rmcp():
             self._remaining_poll_time()
             json = self.get_from_rmcp()
             if json is not None:
                 self.last_backend = BACKEND_RMCP
             else:
-                self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
+                self.auth_failed = self.auth_failed or looks_like_auth_error(self._last_rmcp_error)
 
         self._remaining_poll_time()
         if json is not None:

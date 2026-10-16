@@ -855,3 +855,25 @@ def test_reauth_validates_options_and_uses_update_listener(backend):
     })
     update.assert_called_once_with(entry, data_updates={"password": "new"}, reason="reauth_successful")
     assert result == {"type": "abort"}
+
+
+def test_auth_evidence_survives_failed_fallback_and_resets_on_success(harness):
+    srv = harness._make_server()
+
+    def failed_rmcp():
+        srv._last_rmcp_error = "TimeoutError: timed out"
+        return None
+
+    with patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv, "get_from_addon", return_value={"success": False, "message": "invalid password"}
+    ), patch.object(srv, "get_from_rmcp", side_effect=failed_rmcp):
+        srv.update()
+    assert srv.auth_failed
+    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value=None), patch.object(
+        srv, "get_from_rmcp", side_effect=failed_rmcp
+    ):
+        srv.update()
+    assert srv.auth_failed
+    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value={"success": True}):
+        srv.update()
+    assert not srv.auth_failed
