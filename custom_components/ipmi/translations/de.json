@@ -60,7 +60,6 @@
         "title": "IPMI-Server neu konfigurieren",
         "description": "BMC-Verbindungsdaten für diesen Eintrag aktualisieren.",
         "data": {
-          "alias": "Alias",
           "host": "Host",
           "password": "Passwort",
           "port": "Port",

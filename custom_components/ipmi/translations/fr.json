@@ -60,7 +60,6 @@
         "title": "Reconfigurer le serveur IPMI",
         "description": "Mettre à jour les détails de connexion BMC pour cette entrée.",
         "data": {
-          "alias": "Alias",
           "host": "Hôte",
           "password": "Mot de passe",
           "port": "Port",

@@ -352,3 +352,48 @@ def test_accepted_substitution_matches_addon_csv_parser():
     # Execute only the documented parser, never an IPMI process.
     result = subprocess.run(["php", "-r", '''echo json_encode(str_getcsv($argv[1], ' ', '"', ''));''', '--', cmd], check=True, capture_output=True, text=True)
     assert json.loads(result.stdout) == ["-H", fields["host"], "-p", "623", "-U", fields["username"], "-P", fields["password"], "bmc", "info"]
+
+
+def test_reconfigure_schema_omits_alias(harness):
+    from types import SimpleNamespace
+    import voluptuous as vol
+
+    namespace = dict(vars(__import__('const')))
+    namespace.update(vol=vol, cv=SimpleNamespace(string=str), CONF_ALIAS="alias", CONF_HOST="host", CONF_PORT="port", CONF_USERNAME="username", CONF_PASSWORD="password", CONF_ADVANCED="advanced", _PORT_SELECTOR=int, _PASSWORD_SELECTOR=str, _BOOLEAN_SELECTOR=bool)
+    load_definitions("config_flow.py", ["_basic_schema"], namespace)
+    schema = namespace["_basic_schema"](None, {"alias": "original"}, include_alias=False)
+    assert "alias" not in [key.schema for key in schema.schema]
+    with pytest.raises(vol.Invalid):
+        schema({"host": "bmc.example", "port": 623, "alias": "changed"})
+    create_schema = namespace["_basic_schema"](None)
+    assert "alias" in [key.schema for key in create_schema.schema]
+
+
+def load_flow_methods(names, namespace):
+    import ast
+    import __future__
+
+    tree = ast.parse((test_util.IPMI_DIR / "config_flow.py").read_text())
+    flow = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "IpmiConfigFlow")
+    nodes = [node for node in flow.body if getattr(node, "name", None) in names]
+    exec(compile(ast.Module(body=nodes, type_ignores=[]), "config_flow.py", "exec", flags=__future__.annotations.compiler_flag), namespace)
+    return namespace
+
+
+def test_reconfigure_preserves_alias_on_input_and_write():
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    entry = SimpleNamespace(entry_id="entry", data={"alias": "original", "host": "bmc.example"}, options={}, unique_id="original")
+    namespace = {"CONF_ALIAS": "alias", "CONF_ADVANCED": "advanced", "_coerce_bool": lambda data, key, default: data.get(key, default), "_normalize_flow_options": lambda data: data, "_entry_data_from_config": dict, "format_entry_unique_id": test_util.util.format_entry_unique_id, "_format_host_port_alias": lambda data: data["alias"]}
+    load_flow_methods(["async_step_reconfigure", "_async_apply_reconfigure"], namespace)
+    flow = SimpleNamespace(_get_reconfigure_entry=lambda: entry, _merge_advanced_defaults=lambda: None, _async_finish_reconfigure=AsyncMock(), _async_current_entries=lambda: [entry], async_update_reload_and_abort=lambda entry, **kwargs: kwargs)
+    asyncio.run(namespace["async_step_reconfigure"](flow, {"alias": "changed", "host": "new.example"}))
+    assert flow.ipmi_config["alias"] == "original"
+    # Also guard the final write, even if another step changed the pending data.
+    flow.ipmi_config["alias"] = "changed"
+    result = asyncio.run(namespace["_async_apply_reconfigure"](flow, entry))
+    assert result["data"]["alias"] == "original"
+    assert result["unique_id"] == "original"
+    assert result["data"]["host"] == "new.example"
