@@ -263,3 +263,63 @@ def test_sensor_unavailable_on_coordinator_failure(sensor_classes, key):
     assert sensor.available
     sensor.coordinator.last_update_success = False
     assert not sensor.available
+
+
+@pytest.fixture
+def energy_sensor(sensor_classes):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    sensor = object.__new__(sensor_classes["IpmiEnergySensor"])
+    sensor.coordinator = SimpleNamespace(last_update_success=True, data=SimpleNamespace(states={"power": 1000}))
+    sensor._power_sensor_key = "power"
+    sensor._energy_kwh = 2.0
+    sensor._last_power_w = 1000
+    sensor._last_integration_time = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    sensor._energy_monitoring_enabled = lambda: True
+    sensor._source_power_entity_enabled = lambda: True
+    clock = [sensor._last_integration_time]
+    sensor_classes["dt_util"].utcnow = lambda: clock[0]
+    return sensor, clock
+
+
+@pytest.mark.parametrize("failure", ["coordinator", "missing", None, "N/A", "nan", "inf", {}, "disabled"])
+def test_energy_breaks_interval_on_bad_observation(energy_sensor, failure):
+    from datetime import timedelta
+
+    sensor, clock = energy_sensor
+    if failure == "coordinator":
+        sensor.coordinator.last_update_success = False
+    elif failure == "missing":
+        sensor.coordinator.data.states = {}
+    elif failure == "disabled":
+        sensor._source_power_entity_enabled = lambda: False
+    else:
+        sensor.coordinator.data.states["power"] = failure
+    assert not sensor.available
+    clock[0] += timedelta(hours=1)
+    sensor._handle_coordinator_update()
+    assert sensor._last_power_w is None
+    assert sensor._energy_kwh == 2.0
+    sensor.coordinator.last_update_success = True
+    sensor.coordinator.data.states = {"power": 1000}
+    sensor._source_power_entity_enabled = lambda: True
+    clock[0] += timedelta(hours=1)
+    sensor._handle_coordinator_update()
+    assert sensor._energy_kwh == 2.0
+    clock[0] += timedelta(hours=1)
+    sensor._handle_coordinator_update()
+    assert sensor._energy_kwh == 3.0
+
+
+@pytest.mark.parametrize("restored,expected", [(None, 0), ("N/A", 0), ("nan", 0), ("inf", 0), (-1, 0), ("12.5", 12.5)])
+def test_energy_restore_validates_total(energy_sensor, restored, expected):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    sensor, _ = energy_sensor
+    sensor._energy_kwh = 0
+    sensor.async_get_last_sensor_data = AsyncMock(return_value=SimpleNamespace(native_value=restored))
+    asyncio.run(sensor.async_added_to_hass())
+    assert sensor._energy_kwh == expected
