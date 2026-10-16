@@ -299,7 +299,10 @@ class IpmiSensor(
         if self.entity_description.key == KEY_STATUS:
             return True
         status = self.coordinator.data
-        return status is not None and status.states.get(self.entity_description.key) is not None
+        return (
+            status is not None
+            and status.states.get(self.entity_description.key) is not None
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
@@ -436,7 +439,8 @@ class IpmiEnergySensor(
         else:
             elapsed = (
                 (now - self._last_integration_time).total_seconds()
-                if self._last_integration_time is not None else 0
+                if self._last_integration_time is not None
+                else 0
             )
             self._energy_kwh = integrate_power_left_riemann(
                 previous_power_w=self._last_power_w,

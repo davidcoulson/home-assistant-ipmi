@@ -188,10 +188,9 @@ def redact_connection_secrets(
     variants = set()
     for secret in (password, kg_key):
         if secret:
-            variants.update((
-                str(secret), quote(str(secret)),
-                quote(str(secret), safe=""), quote_plus(str(secret)),
-            ))
+            variants.update(
+                (str(secret), quote(str(secret)), quote(str(secret), safe=""), quote_plus(str(secret)))
+            )
     for variant in sorted(variants, key=len, reverse=True):
         redacted = redacted.replace(variant, "***")
     return redacted
@@ -265,6 +264,7 @@ def substitute_command_fields(command: str, fields: Mapping[str, Any]) -> str:
     quotes rather than guessing whether callers have already quoted a token.
     A single pass also prevents placeholders inside credentials expanding again.
     """
+
     def replace(match: re.Match[str]) -> str:
         value = str(fields[match.group(1)] or "")
         if any(char.isspace() or char in "\"'" for char in value):

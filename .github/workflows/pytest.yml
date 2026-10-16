@@ -13,6 +13,6 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install test dependencies
-        run: pip install pytest python-ipmi requests
+        run: pip install pytest python-ipmi requests voluptuous
       - name: Run unit tests
         run: pytest -q tests

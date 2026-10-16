@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.11.26.01 — 2026-11-26 (fork)
+
+- Use addon secret headers by default, disable redirects, and warn for remote plain HTTP; retain explicit legacy query authentication.
+- Redact encoded credentials and sensitive diagnostics; omit command details from errors.
+- Add an option to prevent legacy RMCP for lanplus/Kg connections.
+- Prevent overlapping polls and share a cooperative timeout budget across backend attempts.
+- Avoid replaying destructive chassis commands after ambiguous addon responses.
+- Honor coordinator availability and stop energy integration across invalid or missing observations.
+- Reject unsafe command placeholders and preserve aliases during reconfiguration.
+
 ## 1.22.3-djc.1 — 2026-11-14 (fork)
 
 ### Fixed
