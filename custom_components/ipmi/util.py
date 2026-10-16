@@ -188,7 +188,10 @@ def redact_connection_secrets(
     variants = set()
     for secret in (password, kg_key):
         if secret:
-            variants.update((str(secret), quote(str(secret), safe=""), quote_plus(str(secret))))
+            variants.update((
+                str(secret), quote(str(secret)),
+                quote(str(secret), safe=""), quote_plus(str(secret)),
+            ))
     for variant in sorted(variants, key=len, reverse=True):
         redacted = redacted.replace(variant, "***")
     return redacted

@@ -65,7 +65,7 @@ def load_definitions(filename, names, namespace):
 def test_encoded_redaction(secret):
     from urllib.parse import quote, quote_plus
 
-    for encoded in (secret, quote(secret, safe=""), quote_plus(secret)):
+    for encoded in (secret, quote(secret), quote(secret, safe=""), quote_plus(secret)):
         assert test_util.util.redact_connection_secrets(encoded, secret) == "***"
 
 
@@ -397,3 +397,13 @@ def test_reconfigure_preserves_alias_on_input_and_write():
     assert result["data"]["alias"] == "original"
     assert result["unique_id"] == "original"
     assert result["data"]["host"] == "new.example"
+
+
+def test_unknown_outcome_traceback_omits_request_secrets(harness):
+    import traceback
+
+    srv = harness._make_server()
+    with patch.object(harness._server_mod.requests, "get", side_effect=harness._server_mod.requests.ReadTimeout("https://addon/?password=secret")):
+        with pytest.raises(harness._server_mod.IpmiChassisCommandError) as exc:
+            srv.power_reset()
+    assert "password=secret" not in "".join(traceback.format_exception(exc.value))

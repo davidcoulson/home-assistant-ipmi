@@ -405,7 +405,7 @@ class IpmiServer:
                 raise IpmiChassisCommandError(
                     f"Chassis command outcome unknown ({type(err).__name__}); "
                     "check chassis state before retrying"
-                ) from err
+                ) from None
             self._record_addon_transport_failure()
             _LOGGER.warning(
                 "ipmi-server addon unavailable at %s (%s)",
@@ -427,11 +427,10 @@ class IpmiServer:
             )
         if addon_action_succeeded(payload):
             return True
-        message = str(payload.get("message") or payload.get("output") or payload)
         _LOGGER.warning(
-            "Addon action %s failed (%s); falling back to RMCP if allowed",
+            "Addon action %s failed at %s; falling back to RMCP if allowed",
             path,
-            redact_connection_secrets(message, self._password, self._kg_key),
+            self._addon_origin,
         )
         return False
 
@@ -614,7 +613,7 @@ class IpmiServer:
                     raise IpmiChassisCommandError(
                         f"RMCP chassis command failed for {self._host}: "
                         f"{type(err).__name__}"
-                    ) from err
+                    ) from None
 
     def _invalidate_rmcp_session_unlocked(self) -> None:
         """Close and forget the cached RMCP session (caller must hold ``_rmcp_lock``)."""
@@ -813,7 +812,7 @@ class IpmiServer:
         if not self._should_try_rmcp():
             raise IpmiChassisCommandError(
                 f"Chassis command {addon_path} failed and RMCP is disabled by "
-                f"backend preference '{self._backend_preference}'"
+                "connection policy or backend preference"
             )
         self.run_rmcp_command(rmcp_command)
         _LOGGER.info("Chassis command %s succeeded via RMCP", addon_path)
