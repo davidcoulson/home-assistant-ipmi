@@ -81,7 +81,7 @@ class IpmiDeviceInfo:
     """Device information for the IPMI server."""
 
     device: dict[str, Any] = field(default_factory=dict)
-    power_on: bool = False
+    power_on: bool | None = None
     sensors: dict[str, dict[str, str]] = field(default_factory=dict)
     states: dict[str, Any] = field(default_factory=dict)
     statuses: dict[str, str] = field(default_factory=dict)
@@ -398,8 +398,8 @@ class IpmiServer:
                 raise IpmiChassisCommandError("Chassis command outcome unknown (redirect)")
             http_resp.raise_for_status()
             response = http_resp.json()
-            if uncertain_action and not isinstance(response, dict):
-                raise IpmiChassisCommandError("Chassis command outcome unknown (invalid response)")
+            if not isinstance(response, dict):
+                raise ValueError("Invalid addon response: expected an object")
             self._record_addon_transport_success()
             if isinstance(response, dict):
                 self._ingest_addon_capabilities(response)
@@ -740,7 +740,7 @@ class IpmiServer:
         if self._should_try_addon():
             json = self.get_from_addon(None)
             if json is not None:
-                if not json.get("success"):
+                if json.get("success") is not True:
                     message = str(json.get("message", ""))
                     _LOGGER.error(
                         "%s",
@@ -771,7 +771,8 @@ class IpmiServer:
         if json is not None:
             info = IpmiDeviceInfo()
             info.device = json.get("device") if isinstance(json.get("device"), dict) else {}
-            info.power_on = bool(json.get("power_on"))
+            power_on = json.get("power_on")
+            info.power_on = power_on if isinstance(power_on, bool) else None
             info.sensors = normalize_addon_sensor_groups(
                 json.get("sensors"), sensor_types=SENSOR_TYPES
             )

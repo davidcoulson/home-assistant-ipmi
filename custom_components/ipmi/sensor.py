@@ -322,7 +322,9 @@ class IpmiSensor(
         status = self.coordinator.data
 
         if self.entity_description.key == KEY_STATUS:
-            if status.power_on:
+            if status.power_on is None:
+                return None
+            if status.power_on is True:
                 return STATE_ON
             else:
                 return STATE_OFF
@@ -333,7 +335,11 @@ class IpmiSensor(
             state = status.states.get(self.entity_description.key, None)
 
             if state is not None:
-                return float(state)
+                try:
+                    value = float(state)
+                except (TypeError, ValueError, OverflowError):
+                    return None
+                return value if math.isfinite(value) else None
             # Missing reading → None (not STATE_UNKNOWN) for numeric sensors.
             return None
 

@@ -78,10 +78,10 @@ class IpmiPowerBinarySensor(
         self.ipmi_data = data
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """Return True if the server is powered on."""
         status = self.coordinator.data
-        return bool(status.power_on)
+        return status.power_on
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:

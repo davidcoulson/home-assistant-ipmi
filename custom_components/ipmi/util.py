@@ -250,7 +250,7 @@ def categorize_rmcp_sensor(
 
 def addon_action_succeeded(response: dict[str, Any] | None) -> bool:
     """Return True when an addon HTTP JSON payload indicates success."""
-    return bool(response) and bool(response.get("success"))
+    return isinstance(response, dict) and response.get("success") is True
 
 
 class IpmiChassisCommandError(RuntimeError):

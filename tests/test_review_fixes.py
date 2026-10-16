@@ -758,3 +758,73 @@ def test_close_waits_for_surviving_poll(harness):
             cleanup.result(timeout=5)
     ipmi.close.assert_called_once_with()
     assert srv._rmcp_ipmi is None
+
+
+@pytest.mark.parametrize("payload", [[], ["success"], "false", None, 42])
+def test_invalid_addon_envelope_falls_back(harness, payload):
+    srv = harness._make_server()
+    response = MagicMock(status_code=200)
+    response.json.return_value = payload
+    with patch.object(harness._server_mod.requests, "get", return_value=response), patch.object(
+        srv, "_probe_addon_meta"
+    ), patch.object(srv, "get_from_rmcp", return_value={"power_on": True}) as rmcp:
+        srv.update()
+    rmcp.assert_called_once_with()
+    assert srv.last_backend == "rmcp"
+
+
+@pytest.mark.parametrize("success", [False, "false", "true", 1, None])
+def test_addon_success_requires_boolean_true(harness, success):
+    srv = harness._make_server()
+    assert not test_util.util.addon_action_succeeded({"success": success})
+    with patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv, "get_from_addon", return_value={"success": success}
+    ), patch.object(srv, "get_from_rmcp", return_value={"power_on": False}) as rmcp:
+        srv.update()
+    rmcp.assert_called_once_with()
+
+
+@pytest.mark.parametrize("power,expected", [(True, True), (False, False), (None, None), ("false", None), (1, None)])
+def test_addon_power_requires_boolean(harness, power, expected):
+    srv = harness._make_server()
+    payload = {"success": True}
+    if power is not None:
+        payload["power_on"] = power
+    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value=payload):
+        srv.update()
+    assert srv.device_info.power_on is expected
+
+
+@pytest.mark.parametrize("value", ["N/A", {}, [], "nan", "inf", None])
+def test_numeric_sensor_invalid_value_is_unknown(sensor_classes, value):
+    from types import SimpleNamespace
+
+    sensor = object.__new__(sensor_classes["IpmiSensor"])
+    sensor.entity_description = SimpleNamespace(key="temperature")
+    sensor.coordinator = SimpleNamespace(data=SimpleNamespace(states={"temperature": value}))
+    assert sensor.native_value is None
+
+
+def test_state_sensor_missing_power_is_unknown(sensor_classes):
+    from types import SimpleNamespace
+
+    sensor = object.__new__(sensor_classes["IpmiSensor"])
+    sensor.entity_description = SimpleNamespace(key="status")
+    sensor.coordinator = SimpleNamespace(data=SimpleNamespace(power_on=None))
+    assert sensor.native_value is None
+
+
+@pytest.mark.parametrize("filename,classname,base", [
+    ("binary_sensor.py", "IpmiPowerBinarySensor", "BinarySensorEntity"),
+    ("switch.py", "IpmiSwitch", "SwitchEntity"),
+])
+def test_power_entities_preserve_unknown(sensor_classes, filename, classname, base):
+    from types import SimpleNamespace
+
+    namespace = dict(sensor_classes)
+    namespace[base] = type(base, (), {})
+    load_definitions(filename, [classname], namespace)
+    entity = object.__new__(namespace[classname])
+    entity.coordinator = SimpleNamespace(data=SimpleNamespace(power_on=None))
+    entity._pending_off_until = None
+    assert entity.is_on is None
