@@ -819,7 +819,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
                 **entry.options,
                 **_entry_options_from_config(self.ipmi_config),
             }
-        return self.async_update_reload_and_abort(entry, **update_kwargs)
+        return self.async_update_and_abort(entry, **update_kwargs)
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
@@ -841,7 +841,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
             new_data = {**entry.data, **entry.options, **user_input}
             _, errors = await self._async_validate_or_error(new_data)
             if not errors:
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry,
                     data_updates=user_input,
                     reason="reauth_successful",

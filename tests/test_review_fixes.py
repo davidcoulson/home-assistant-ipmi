@@ -572,7 +572,7 @@ def test_reconfigure_preserves_alias_on_input_and_write():
         _merge_advanced_defaults=lambda: None,
         _async_finish_reconfigure=AsyncMock(),
         _async_current_entries=lambda: [entry],
-        async_update_reload_and_abort=lambda entry, **kwargs: kwargs,
+        async_update_and_abort=lambda entry, **kwargs: kwargs,
     )
     asyncio.run(
         namespace["async_step_reconfigure"](
@@ -828,3 +828,30 @@ def test_power_entities_preserve_unknown(sensor_classes, filename, classname, ba
     entity.coordinator = SimpleNamespace(data=SimpleNamespace(power_on=None))
     entity._pending_off_until = None
     assert entity.is_on is None
+
+
+@pytest.mark.parametrize("backend", ["addon", "rmcp"])
+def test_reauth_validates_options_and_uses_update_listener(backend):
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    entry = SimpleNamespace(
+        data={"password": "old", "backend_preference": "auto"},
+        options={"backend_preference": backend, "sensor_types": [], "create_energy_sensors": False},
+    )
+    namespace = {}
+    load_flow_methods(["async_step_reauth_confirm"], namespace)
+    update = MagicMock(return_value={"type": "abort"})
+    flow = SimpleNamespace(
+        _get_reauth_entry=lambda: entry,
+        _async_validate_or_error=AsyncMock(return_value=({}, {})),
+        async_update_and_abort=update,
+    )
+    result = asyncio.run(namespace["async_step_reauth_confirm"](flow, {"password": "new"}))
+    flow._async_validate_or_error.assert_awaited_once_with({
+        "password": "new", "backend_preference": backend,
+        "sensor_types": [], "create_energy_sensors": False,
+    })
+    update.assert_called_once_with(entry, data_updates={"password": "new"}, reason="reauth_successful")
+    assert result == {"type": "abort"}
