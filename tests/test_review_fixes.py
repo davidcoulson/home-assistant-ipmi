@@ -220,3 +220,46 @@ def test_pre_execution_chassis_failure_allows_fallback(harness, failure):
     with patch.object(requests, "get", return_value=response, side_effect=effect), patch.object(srv, "run_rmcp_command") as rmcp:
         srv.power_reset()
     rmcp.assert_called_once()
+
+
+@pytest.fixture
+def sensor_classes():
+    from types import SimpleNamespace
+
+    class CoordinatorEntity:
+        def __class_getitem__(cls, item):
+            return cls
+
+        @property
+        def available(self):
+            return self.coordinator.last_update_success
+
+        def _handle_coordinator_update(self):
+            pass
+
+        async def async_added_to_hass(self):
+            pass
+
+    class SensorEntity:
+        pass
+
+    namespace = {
+        "CoordinatorEntity": CoordinatorEntity, "DataUpdateCoordinator": dict,
+        "SensorEntity": SensorEntity, "RestoreSensor": SensorEntity,
+        "callback": lambda function: function, "KEY_STATUS": "status",
+        "dt_util": SimpleNamespace(), "integrate_power_left_riemann": test_util.util.integrate_power_left_riemann,
+        "math": __import__('math'),
+    }
+    return load_definitions("sensor.py", ["IpmiSensor", "IpmiEnergySensor"], namespace)
+
+
+@pytest.mark.parametrize("key", ["status", "cpu_temp"])
+def test_sensor_unavailable_on_coordinator_failure(sensor_classes, key):
+    from types import SimpleNamespace
+
+    sensor = object.__new__(sensor_classes["IpmiSensor"])
+    sensor.entity_description = SimpleNamespace(key=key)
+    sensor.coordinator = SimpleNamespace(last_update_success=True, data=SimpleNamespace(states={"cpu_temp": 30}))
+    assert sensor.available
+    sensor.coordinator.last_update_success = False
+    assert not sensor.available

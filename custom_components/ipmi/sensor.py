@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from typing import Final
 
@@ -295,17 +296,10 @@ class IpmiSensor(
         """Return True if entity is available."""
         if not super().available:
             return False
-        status = self.coordinator.data
-
         if self.entity_description.key == KEY_STATUS:
             return True
-        else:
-            if len(status.states) == 0:
-                return False
-
-            state = status.states.get(self.entity_description.key, None)
-
-            return state is not None
+        status = self.coordinator.data
+        return status is not None and status.states.get(self.entity_description.key) is not None
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
