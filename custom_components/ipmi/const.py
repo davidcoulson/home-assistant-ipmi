@@ -138,3 +138,6 @@ ADDON_META_PATH = "meta"
 CONF_MINIMAL_IPMI = "minimal_ipmi"
 DEFAULT_MINIMAL_IPMI = False
 
+
+# Explicit compatibility mode for addons without secret header support.
+CONF_LEGACY_ADDON_QUERY_AUTH = "legacy_addon_query_auth"

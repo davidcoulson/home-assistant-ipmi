@@ -41,7 +41,8 @@
           "sensor_types": "Types de capteurs à découvrir",
           "backend_preference": "Préférence de backend de connexion",
           "create_energy_sensors": "Créer des capteurs d'énergie à partir de la puissance",
-          "minimal_ipmi": "IPMI minimal (alimentation uniquement)"
+          "minimal_ipmi": "IPMI minimal (alimentation uniquement)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optionnel. Nécessite l'add-on ipmi-server ; non pris en charge par le repli python-ipmi.",
@@ -80,7 +81,8 @@
           "sensor_types": "Types de capteurs à découvrir",
           "backend_preference": "Préférence de backend de connexion",
           "create_energy_sensors": "Créer des capteurs d'énergie à partir de la puissance",
-          "minimal_ipmi": "IPMI minimal (alimentation uniquement)"
+          "minimal_ipmi": "IPMI minimal (alimentation uniquement)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optionnel. Nécessite l'add-on ipmi-server ; non pris en charge par le repli python-ipmi.",

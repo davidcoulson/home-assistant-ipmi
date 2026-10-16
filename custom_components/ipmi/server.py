@@ -8,6 +8,7 @@ import logging
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import pyipmi
 import pyipmi.interfaces
@@ -27,6 +28,7 @@ from .const import (
     BACKEND_PREFERENCE_RMCP,
     BACKEND_RMCP,
     CONF_IGNORE_CHECKSUM_ERRORS,
+    CONF_LEGACY_ADDON_QUERY_AUTH,
     DEFAULT_BACKEND_PREFERENCE,
     DEFAULT_HTTP_CONNECT_TIMEOUT,
     DEFAULT_HTTP_TIMEOUT,
@@ -97,6 +99,10 @@ class IpmiServer:
         )
         self._addon_interface = connection_data.get("addon_interface")
         self._addon_extra_params = connection_data.get("addon_extra_params")
+        self._legacy_addon_query_auth = connection_data.get(
+            CONF_LEGACY_ADDON_QUERY_AUTH, False
+        )
+        self._warned_insecure_http = False
         self._ignore_checksum_errors = connection_data.get(
             CONF_IGNORE_CHECKSUM_ERRORS, False
         )
@@ -170,14 +176,15 @@ class IpmiServer:
             "host": self._host,
             "port": self._port,
             "user": self._username,
-            "password": self._password,
         }
 
         if self._addon_interface is not None and self._addon_interface != "auto":
             params["interface"] = self._addon_interface
 
-        if self._kg_key:
-            params["kg_key"] = self._kg_key
+        if self._legacy_addon_query_auth:
+            params["password"] = self._password
+            if self._kg_key:
+                params["kg_key"] = self._kg_key
 
         if self._privilege_level:
             params["privilege_level"] = self._privilege_level
@@ -222,7 +229,7 @@ class IpmiServer:
         self._addon_meta_probed = True
         url = f"{self._addon_url}/{ADDON_META_PATH}"
         try:
-            http_resp = requests.get(url, timeout=10)
+            http_resp = requests.get(url, timeout=10, allow_redirects=False)
             if http_resp.status_code in {404, 405}:
                 return
             http_resp.raise_for_status()
@@ -292,6 +299,22 @@ class IpmiServer:
         if not self._should_try_addon():
             return None
 
+        origin = urlsplit(self._addon_url)
+        if (
+            origin.scheme == "http"
+            and origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+            and not self._warned_insecure_http
+        ):
+            _LOGGER.warning(
+                "Remote addon uses plain HTTP; credentials are unencrypted. Use HTTPS"
+            )
+            self._warned_insecure_http = True
+        headers = {}
+        if not self._legacy_addon_query_auth:
+            headers = {
+                "X-Ipmi-Password": self._password or "",
+                "X-Ipmi-Kg-Key": self._kg_key or "",
+            }
         params = self._addon_query_params(extra)
         url = self._addon_url
         if path is not None:
@@ -313,6 +336,8 @@ class IpmiServer:
                     http_resp = requests.post(
                         url,
                         json=params,
+                        headers=headers,
+                        allow_redirects=False,
                         timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
                     )
                     if http_resp.status_code not in _POST_UNSUPPORTED_STATUSES:
@@ -334,6 +359,8 @@ class IpmiServer:
             http_resp = requests.get(
                 url,
                 params=params,
+                headers=headers,
+                allow_redirects=False,
                 timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
             )
             http_resp.raise_for_status()

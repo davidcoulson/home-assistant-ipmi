@@ -41,7 +41,8 @@
           "sensor_types": "Zu entdeckende Sensortypen",
           "backend_preference": "Bevorzugtes Verbindungs-Backend",
           "create_energy_sensors": "Energiesensoren aus Leistungswerten erstellen",
-          "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)"
+          "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optional. Erfordert das ipmi-server-Addon; wird vom python-ipmi-Fallback nicht unterstützt.",
@@ -80,7 +81,8 @@
           "sensor_types": "Zu entdeckende Sensortypen",
           "backend_preference": "Bevorzugtes Verbindungs-Backend",
           "create_energy_sensors": "Energiesensoren aus Leistungswerten erstellen",
-          "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)"
+          "minimal_ipmi": "Minimal-IPMI (nur Stromversorgung)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optional. Erfordert das ipmi-server-Addon; wird vom python-ipmi-Fallback nicht unterstützt.",

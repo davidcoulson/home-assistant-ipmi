@@ -37,7 +37,8 @@
           "addon_port": "ipmi-server 端口",
           "addon_interface": "ipmitool 接口",
           "addon_extra_params": "额外的 ipmitool 参数",
-          "backend_preference": "连接后端偏好"
+          "backend_preference": "连接后端偏好",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "可选。需要 ipmi-server 插件支持；python-ipmi 后备模式不支持此项。",
@@ -82,7 +83,8 @@
           "addon_port": "ipmi-server 端口",
           "addon_interface": "ipmitool 接口",
           "addon_extra_params": "额外的 ipmitool 参数",
-          "backend_preference": "连接后端偏好"
+          "backend_preference": "连接后端偏好",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "backend_preference": "auto = 优先尝试插件，然后是 RMCP（历史默认值）。rmcp = 仅使用 python-ipmi（跳过插件探测）。警告：send_command 服务需要插件支持，在 rmcp 模式下无法工作。"

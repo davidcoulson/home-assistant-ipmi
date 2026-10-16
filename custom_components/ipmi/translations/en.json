@@ -37,7 +37,8 @@
           "addon_port": "ipmi-server port",
           "addon_interface": "ipmitool interface",
           "addon_extra_params": "Extra ipmitool parameters",
-          "backend_preference": "Connection backend preference"
+          "backend_preference": "Connection backend preference",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optional. Requires the ipmi-server addon; not supported by the python-ipmi fallback.",
@@ -82,7 +83,8 @@
           "addon_port": "ipmi-server port",
           "addon_interface": "ipmitool interface",
           "addon_extra_params": "Extra ipmitool parameters",
-          "backend_preference": "Connection backend preference"
+          "backend_preference": "Connection backend preference",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "backend_preference": "auto = try addon first then RMCP (historical default). rmcp = python-ipmi only (skips addon probes). Warning: the send_command service requires the addon and will not work with rmcp."

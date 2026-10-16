@@ -41,7 +41,8 @@
           "sensor_types": "Τύποι αισθητήρων προς ανακάλυψη",
           "backend_preference": "Προτίμηση backend σύνδεσης",
           "create_energy_sensors": "Δημιουργία αισθητήρων ενέργειας από μετρήσεις ισχύος",
-          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)"
+          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Προαιρετικό. Απαιτεί το addon ipmi-server· δεν υποστηρίζεται από το python-ipmi fallback.",
@@ -80,7 +81,8 @@
           "sensor_types": "Τύποι αισθητήρων προς ανακάλυψη",
           "backend_preference": "Προτίμηση backend σύνδεσης",
           "create_energy_sensors": "Δημιουργία αισθητήρων ενέργειας από μετρήσεις ισχύος",
-          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)"
+          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Προαιρετικό. Απαιτεί το addon ipmi-server· δεν υποστηρίζεται από το python-ipmi fallback.",

@@ -28,7 +28,8 @@
           "addon_port": "ipmi-server port",
           "addon_interface": "ipmitool interface",
           "addon_extra_params": "Extra ipmitool parameters",
-          "backend_preference": "Connection backend preference"
+          "backend_preference": "Connection backend preference",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "kg_key": "Optional. Requires the ipmi-server addon; not supported by the python-ipmi fallback.",
@@ -77,7 +78,8 @@
           "addon_port": "[%key:component::ipmi::config::step::advanced::data::addon_port%]",
           "addon_interface": "[%key:component::ipmi::config::step::advanced::data::addon_interface%]",
           "addon_extra_params": "[%key:component::ipmi::config::step::advanced::data::addon_extra_params%]",
-          "backend_preference": "[%key:component::ipmi::config::step::advanced::data::backend_preference%]"
+          "backend_preference": "[%key:component::ipmi::config::step::advanced::data::backend_preference%]",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)"
         },
         "data_description": {
           "backend_preference": "[%key:component::ipmi::config::step::advanced::data_description::backend_preference%]"

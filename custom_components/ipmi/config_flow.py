@@ -44,6 +44,7 @@ from .const import (
     CONF_BACKEND_PREFERENCE,
     CONF_CREATE_ENERGY_SENSORS,
     CONF_IGNORE_CHECKSUM_ERRORS,
+    CONF_LEGACY_ADDON_QUERY_AUTH,
     CONF_MINIMAL_IPMI,
     CONF_POWER_OFF_DELAY,
     CONF_IPMI_SERVER_HOST,
@@ -239,6 +240,10 @@ def _advanced_schema(
                 default=defaults.get(CONF_ADDON_INTERFACE, DEFAULT_INTERFACE_TYPE),
             ): _INTERFACE_SELECTOR,
             vol.Optional(
+                CONF_LEGACY_ADDON_QUERY_AUTH,
+                default=defaults.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
+            ): _BOOLEAN_SELECTOR,
+            vol.Optional(
                 CONF_ADDON_PARAMS,
                 default=defaults.get(CONF_ADDON_PARAMS) or "",
             ): cv.string,
@@ -314,6 +319,7 @@ def _options_schema(
 def _advanced_defaults() -> dict[str, Any]:
     """Default advanced values used when the advanced step is skipped."""
     return {
+        CONF_LEGACY_ADDON_QUERY_AUTH: False,
         CONF_KG_KEY: DEFAULT_KG_KEY,
         CONF_PRIVILEGE_LEVEL: DEFAULT_PRIVILEGE_LEVEL,
         CONF_IPMI_SERVER_HOST: DEFAULT_IPMI_SERVER_HOST,
@@ -376,6 +382,7 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             "addon_port": data.get(CONF_ADDON_PORT),
             "addon_interface": data.get(CONF_ADDON_INTERFACE),
             "addon_extra_params": data.get(CONF_ADDON_PARAMS),
+            CONF_LEGACY_ADDON_QUERY_AUTH: data.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
             CONF_IGNORE_CHECKSUM_ERRORS: data.get(CONF_IGNORE_CHECKSUM_ERRORS, False),
             "backend_preference": data.get(
                 CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE
