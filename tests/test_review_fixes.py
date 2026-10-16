@@ -20,13 +20,16 @@ def test_secret_headers_and_no_redirects(harness):
     srv = harness._make_server(kg_key="kg-secret")
     response = MagicMock()
     response.json.return_value = {"success": True}
-    with patch.object(harness._server_mod.requests, "get", return_value=response) as get:
+    with patch.object(
+        harness._server_mod.requests, "get", return_value=response
+    ) as get:
         srv.get_from_addon(None)
     kwargs = get.call_args.kwargs
     assert "password" not in kwargs["params"]
     assert "kg_key" not in kwargs["params"]
     assert kwargs["headers"] == {
-        "X-Ipmi-Password": "secret", "X-Ipmi-Kg-Key": "kg-secret"
+        "X-Ipmi-Password": "secret",
+        "X-Ipmi-Kg-Key": "kg-secret",
     }
     assert kwargs["allow_redirects"] is False
 
@@ -35,7 +38,9 @@ def test_explicit_legacy_query_mode(harness):
     srv = harness._make_server(legacy_addon_query_auth=True, kg_key="kg-secret")
     response = MagicMock()
     response.json.return_value = {"success": True}
-    with patch.object(harness._server_mod.requests, "get", return_value=response) as get:
+    with patch.object(
+        harness._server_mod.requests, "get", return_value=response
+    ) as get:
         srv.get_from_addon(None)
     assert get.call_args.kwargs["params"]["password"] == "secret"
     assert get.call_args.kwargs["params"]["kg_key"] == "kg-secret"
@@ -57,11 +62,19 @@ def load_definitions(filename, names, namespace):
     tree = ast.parse((test_util.IPMI_DIR / filename).read_text())
     nodes = [node for node in tree.body if getattr(node, "name", None) in names]
     module = ast.Module(body=nodes, type_ignores=[])
-    exec(compile(module, filename, "exec", flags=__import__('__future__').annotations.compiler_flag), namespace)
+    exec(
+        compile(
+            module,
+            filename,
+            "exec",
+            flags=__import__("__future__").annotations.compiler_flag,
+        ),
+        namespace,
+    )
     return namespace
 
 
-@pytest.mark.parametrize("secret", ['p@ss word+%&"', 'päss word', 'a/b?c'])
+@pytest.mark.parametrize("secret", ['p@ss word+%&"', "päss word", "a/b?c"])
 def test_encoded_redaction(secret):
     from urllib.parse import quote, quote_plus
 
@@ -71,11 +84,19 @@ def test_encoded_redaction(secret):
 
 def test_transport_logs_and_command_errors_hide_secrets(harness, caplog):
     srv = harness._make_server(ipmi_server_host="https://u:proxysecret@addon.example")
-    with patch.object(harness._server_mod.requests, "get", side_effect=RuntimeError("URL secret proxysecret")):
+    with patch.object(
+        harness._server_mod.requests,
+        "get",
+        side_effect=RuntimeError("URL secret proxysecret"),
+    ):
         assert srv.get_from_addon(None) is None
     assert "proxysecret" not in caplog.text
     assert "URL secret" not in caplog.text
-    with patch.object(srv, "get_from_addon", return_value={"success": False, "output": "literal-secret"}):
+    with patch.object(
+        srv,
+        "get_from_addon",
+        return_value={"success": False, "output": "literal-secret"},
+    ):
         with pytest.raises(RuntimeError) as exc:
             srv.send_command("-P literal-secret bmc info", False)
     assert "literal-secret" not in str(exc.value)
@@ -83,7 +104,11 @@ def test_transport_logs_and_command_errors_hide_secrets(harness, caplog):
 
 def test_poll_message_redacted(harness, caplog):
     srv = harness._make_server(backend_preference="addon", password="p@ss word")
-    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value={"success": False, "message": "bad p%40ss+word"}):
+    with patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv,
+        "get_from_addon",
+        return_value={"success": False, "message": "bad p%40ss+word"},
+    ):
         srv.update()
     assert "p%40ss+word" not in caplog.text
 
@@ -95,18 +120,47 @@ def test_diagnostics_redacts_sensitive_fields(harness):
 
     def redact(value, keys):
         if isinstance(value, dict):
-            return {key: "REDACTED" if key in keys else redact(item, keys) for key, item in value.items()}
+            return {
+                key: "REDACTED" if key in keys else redact(item, keys)
+                for key, item in value.items()
+            }
         return value
 
     source = ast.parse((test_util.IPMI_DIR / "diagnostics.py").read_text())
     assignment = next(node for node in source.body if isinstance(node, ast.Assign))
     namespace = {"CONF_PASSWORD": "password", "CONF_KG_KEY": "kg_key"}
-    exec(compile(ast.Module(body=[assignment], type_ignores=[]), "diagnostics.py", "exec"), namespace)
+    exec(
+        compile(
+            ast.Module(body=[assignment], type_ignores=[]), "diagnostics.py", "exec"
+        ),
+        namespace,
+    )
     srv = harness._make_server()
     srv._last_rmcp_error = "secret"
-    entry = SimpleNamespace(entry_id="e", title="lab", data={"ipmi_server_host": "https://u:pw@addon", "addon_extra_params": "-P other"}, options={"addon_extra_params": "-P option"})
-    namespace.update(async_redact_data=redact, get_ipmi_server=lambda *args: {"data": srv, "coordinator": SimpleNamespace(last_update_success=True, update_interval=None)}, IPMI_DATA="data", COORDINATOR="coordinator", DEFAULT_BACKEND_PREFERENCE="auto")
-    load_definitions("diagnostics.py", ["async_get_config_entry_diagnostics"], namespace)
+    entry = SimpleNamespace(
+        entry_id="e",
+        title="lab",
+        data={
+            "ipmi_server_host": "https://u:pw@addon",
+            "addon_extra_params": "-P other",
+        },
+        options={"addon_extra_params": "-P option"},
+    )
+    namespace.update(
+        async_redact_data=redact,
+        get_ipmi_server=lambda *args: {
+            "data": srv,
+            "coordinator": SimpleNamespace(
+                last_update_success=True, update_interval=None
+            ),
+        },
+        IPMI_DATA="data",
+        COORDINATOR="coordinator",
+        DEFAULT_BACKEND_PREFERENCE="auto",
+    )
+    load_definitions(
+        "diagnostics.py", ["async_get_config_entry_diagnostics"], namespace
+    )
     result = asyncio.run(namespace["async_get_config_entry_diagnostics"](None, entry))
     assert result["connection"]["addon_url"] == "REDACTED"
     assert result["connection"]["last_rmcp_error"] == "REDACTED"
@@ -119,7 +173,9 @@ def test_diagnostics_redacts_sensitive_fields(harness):
 def test_strict_rmcp_policy(harness, secure):
     srv = harness._make_server(allow_legacy_rmcp=False, **secure)
     assert not srv._should_try_rmcp()
-    with patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", return_value=None), patch.object(srv, "get_from_rmcp") as rmcp:
+    with patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv, "get_from_addon", return_value=None
+    ), patch.object(srv, "get_from_rmcp") as rmcp:
         srv.update()
     rmcp.assert_not_called()
     with pytest.raises(harness._server_mod.IpmiChassisCommandError, match="policy"):
@@ -137,7 +193,9 @@ def test_default_rmcp_policy_warns_on_downgrade(harness, caplog):
 def test_meta_timeout_tuple_and_redirects(harness):
     srv = harness._make_server()
     response = MagicMock(status_code=404)
-    with patch.object(harness._server_mod.requests, "get", return_value=response) as get:
+    with patch.object(
+        harness._server_mod.requests, "get", return_value=response
+    ) as get:
         srv._probe_addon_meta()
     assert get.call_args.kwargs["timeout"] == (5, 10)
     assert get.call_args.kwargs["allow_redirects"] is False
@@ -152,7 +210,13 @@ def test_poll_uses_remaining_budget_and_skips_late_fallback(harness):
         clock[0] += 56
         return None
 
-    with patch.object(harness._server_mod.time, "monotonic", side_effect=lambda: clock[0]), patch.object(srv, "_probe_addon_meta"), patch.object(srv, "get_from_addon", side_effect=slow_addon), patch.object(srv, "get_from_rmcp") as rmcp:
+    with patch.object(
+        harness._server_mod.time, "monotonic", side_effect=lambda: clock[0]
+    ), patch.object(srv, "_probe_addon_meta"), patch.object(
+        srv, "get_from_addon", side_effect=slow_addon
+    ), patch.object(
+        srv, "get_from_rmcp"
+    ) as rmcp:
         with pytest.raises(TimeoutError, match="deadline"):
             srv.update()
     rmcp.assert_not_called()
@@ -185,8 +249,13 @@ def test_surviving_worker_prevents_overlapping_poll(harness):
             future.result(timeout=5)
 
 
-@pytest.mark.parametrize("action", ["power_reset", "power_cycle", "power_off", "soft_shutdown"])
-@pytest.mark.parametrize("failure", ["read_timeout", "connection_reset", "bad_json", "failure_payload"])
+@pytest.mark.parametrize(
+    "action", ["power_reset", "power_cycle", "power_off", "soft_shutdown"]
+)
+@pytest.mark.parametrize(
+    "failure",
+    ["read_timeout", "connection_reset", "bad_json", "failure_payload", "null_json"],
+)
 def test_ambiguous_chassis_outcome_never_replays(harness, action, failure):
     srv = harness._make_server()
     requests = harness._server_mod.requests
@@ -199,13 +268,21 @@ def test_ambiguous_chassis_outcome_never_replays(harness, action, failure):
         effect = requests.ConnectionError("reset after submission")
     elif failure == "bad_json":
         response.json.side_effect = ValueError("invalid JSON")
-    with patch.object(requests, "get", return_value=response, side_effect=effect), patch.object(srv, "run_rmcp_command") as rmcp:
-        with pytest.raises(harness._server_mod.IpmiChassisCommandError, match="outcome unknown"):
+    elif failure == "null_json":
+        response.json.return_value = None
+    with patch.object(
+        requests, "get", return_value=response, side_effect=effect
+    ), patch.object(srv, "run_rmcp_command") as rmcp:
+        with pytest.raises(
+            harness._server_mod.IpmiChassisCommandError, match="outcome unknown"
+        ):
             getattr(srv, action)()
     rmcp.assert_not_called()
 
 
-@pytest.mark.parametrize("failure", ["connect_timeout", "connection_refused", "route_rejected"])
+@pytest.mark.parametrize(
+    "failure", ["connect_timeout", "connection_refused", "route_rejected"]
+)
 def test_pre_execution_chassis_failure_allows_fallback(harness, failure):
     from urllib3.exceptions import MaxRetryError, NewConnectionError
 
@@ -216,8 +293,12 @@ def test_pre_execution_chassis_failure_allows_fallback(harness, failure):
     if failure == "connect_timeout":
         effect = requests.ConnectTimeout()
     elif failure == "connection_refused":
-        effect = requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
-    with patch.object(requests, "get", return_value=response, side_effect=effect), patch.object(srv, "run_rmcp_command") as rmcp:
+        effect = requests.ConnectionError(
+            MaxRetryError(None, "/", NewConnectionError(None, "refused"))
+        )
+    with patch.object(
+        requests, "get", return_value=response, side_effect=effect
+    ), patch.object(srv, "run_rmcp_command") as rmcp:
         srv.power_reset()
     rmcp.assert_called_once()
 
@@ -244,11 +325,15 @@ def sensor_classes():
         pass
 
     namespace = {
-        "CoordinatorEntity": CoordinatorEntity, "DataUpdateCoordinator": dict,
-        "SensorEntity": SensorEntity, "RestoreSensor": SensorEntity,
-        "callback": lambda function: function, "KEY_STATUS": "status",
-        "dt_util": SimpleNamespace(), "integrate_power_left_riemann": test_util.util.integrate_power_left_riemann,
-        "math": __import__('math'),
+        "CoordinatorEntity": CoordinatorEntity,
+        "DataUpdateCoordinator": dict,
+        "SensorEntity": SensorEntity,
+        "RestoreSensor": SensorEntity,
+        "callback": lambda function: function,
+        "KEY_STATUS": "status",
+        "dt_util": SimpleNamespace(),
+        "integrate_power_left_riemann": test_util.util.integrate_power_left_riemann,
+        "math": __import__("math"),
     }
     return load_definitions("sensor.py", ["IpmiSensor", "IpmiEnergySensor"], namespace)
 
@@ -259,7 +344,9 @@ def test_sensor_unavailable_on_coordinator_failure(sensor_classes, key):
 
     sensor = object.__new__(sensor_classes["IpmiSensor"])
     sensor.entity_description = SimpleNamespace(key=key)
-    sensor.coordinator = SimpleNamespace(last_update_success=True, data=SimpleNamespace(states={"cpu_temp": 30}))
+    sensor.coordinator = SimpleNamespace(
+        last_update_success=True, data=SimpleNamespace(states={"cpu_temp": 30})
+    )
     assert sensor.available
     sensor.coordinator.last_update_success = False
     assert not sensor.available
@@ -271,7 +358,9 @@ def energy_sensor(sensor_classes):
     from types import SimpleNamespace
 
     sensor = object.__new__(sensor_classes["IpmiEnergySensor"])
-    sensor.coordinator = SimpleNamespace(last_update_success=True, data=SimpleNamespace(states={"power": 1000}))
+    sensor.coordinator = SimpleNamespace(
+        last_update_success=True, data=SimpleNamespace(states={"power": 1000})
+    )
     sensor._power_sensor_key = "power"
     sensor._energy_kwh = 2.0
     sensor._last_power_w = 1000
@@ -283,7 +372,9 @@ def energy_sensor(sensor_classes):
     return sensor, clock
 
 
-@pytest.mark.parametrize("failure", ["coordinator", "missing", None, "N/A", "nan", "inf", {}, "disabled"])
+@pytest.mark.parametrize(
+    "failure", ["coordinator", "missing", None, "N/A", "nan", "inf", {}, "disabled"]
+)
 def test_energy_breaks_interval_on_bad_observation(energy_sensor, failure):
     from datetime import timedelta
 
@@ -312,7 +403,10 @@ def test_energy_breaks_interval_on_bad_observation(energy_sensor, failure):
     assert sensor._energy_kwh == 3.0
 
 
-@pytest.mark.parametrize("restored,expected", [(None, 0), ("N/A", 0), ("nan", 0), ("inf", 0), (-1, 0), ("12.5", 12.5)])
+@pytest.mark.parametrize(
+    "restored,expected",
+    [(None, 0), ("N/A", 0), ("nan", 0), ("inf", 0), (-1, 0), ("12.5", 12.5)],
+)
 def test_energy_restore_validates_total(energy_sensor, restored, expected):
     import asyncio
     from types import SimpleNamespace
@@ -320,13 +414,25 @@ def test_energy_restore_validates_total(energy_sensor, restored, expected):
 
     sensor, _ = energy_sensor
     sensor._energy_kwh = 0
-    sensor.async_get_last_sensor_data = AsyncMock(return_value=SimpleNamespace(native_value=restored))
+    sensor.async_get_last_sensor_data = AsyncMock(
+        return_value=SimpleNamespace(native_value=restored)
+    )
     asyncio.run(sensor.async_added_to_hass())
     assert sensor._energy_kwh == expected
 
 
 @pytest.mark.parametrize("field", ["host", "port", "username", "password"])
-@pytest.mark.parametrize("value", ["correct horse", 'p"word', "p'word", "p\tword", "p\nword", "p -H attacker.invalid"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "correct horse",
+        'p"word',
+        "p'word",
+        "p\tword",
+        "p\nword",
+        "p -H attacker.invalid",
+    ],
+)
 def test_unsafe_command_field_rejected_before_request(harness, field, value):
     srv = harness._make_server(**{field: value})
     with patch.object(srv, "get_from_addon") as addon:
@@ -337,7 +443,12 @@ def test_unsafe_command_field_rejected_before_request(harness, field, value):
 
 
 def test_substitution_is_single_pass():
-    assert test_util.util.substitute_command_fields("-U $username$", {"username": "$password$"}) == "-U $password$"
+    assert (
+        test_util.util.substitute_command_fields(
+            "-U $username$", {"username": "$password$"}
+        )
+        == "-U $password$"
+    )
 
 
 def test_accepted_substitution_matches_addon_csv_parser():
@@ -347,21 +458,64 @@ def test_accepted_substitution_matches_addon_csv_parser():
 
     if not shutil.which("php"):
         pytest.skip("PHP is needed to verify the external addon parser")
-    fields = {"host": "bmc.example", "port": "623", "username": "a$word", "password": "p\\word+%&é"}
-    cmd = test_util.util.substitute_command_fields("-H $host$ -p $port$ -U $username$ -P $password$ bmc info", fields)
+    fields = {
+        "host": "bmc.example",
+        "port": "623",
+        "username": "a$word",
+        "password": "p\\word+%&é",
+    }
+    cmd = test_util.util.substitute_command_fields(
+        "-H $host$ -p $port$ -U $username$ -P $password$ bmc info", fields
+    )
     # Execute only the documented parser, never an IPMI process.
-    result = subprocess.run(["php", "-r", '''echo json_encode(str_getcsv($argv[1], ' ', '"', ''));''', '--', cmd], check=True, capture_output=True, text=True)
-    assert json.loads(result.stdout) == ["-H", fields["host"], "-p", "623", "-U", fields["username"], "-P", fields["password"], "bmc", "info"]
+    result = subprocess.run(
+        [
+            "php",
+            "-r",
+            """echo json_encode(str_getcsv($argv[1], ' ', '"', ''));""",
+            "--",
+            cmd,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert json.loads(result.stdout) == [
+        "-H",
+        fields["host"],
+        "-p",
+        "623",
+        "-U",
+        fields["username"],
+        "-P",
+        fields["password"],
+        "bmc",
+        "info",
+    ]
 
 
 def test_reconfigure_schema_omits_alias(harness):
     from types import SimpleNamespace
     import voluptuous as vol
 
-    namespace = dict(vars(__import__('const')))
-    namespace.update(vol=vol, cv=SimpleNamespace(string=str), CONF_ALIAS="alias", CONF_HOST="host", CONF_PORT="port", CONF_USERNAME="username", CONF_PASSWORD="password", CONF_ADVANCED="advanced", _PORT_SELECTOR=int, _PASSWORD_SELECTOR=str, _BOOLEAN_SELECTOR=bool)
+    namespace = dict(vars(__import__("const")))
+    namespace.update(
+        vol=vol,
+        cv=SimpleNamespace(string=str),
+        CONF_ALIAS="alias",
+        CONF_HOST="host",
+        CONF_PORT="port",
+        CONF_USERNAME="username",
+        CONF_PASSWORD="password",
+        CONF_ADVANCED="advanced",
+        _PORT_SELECTOR=int,
+        _PASSWORD_SELECTOR=str,
+        _BOOLEAN_SELECTOR=bool,
+    )
     load_definitions("config_flow.py", ["_basic_schema"], namespace)
-    schema = namespace["_basic_schema"](None, {"alias": "original"}, include_alias=False)
+    schema = namespace["_basic_schema"](
+        None, {"alias": "original"}, include_alias=False
+    )
     assert "alias" not in [key.schema for key in schema.schema]
     with pytest.raises(vol.Invalid):
         schema({"host": "bmc.example", "port": 623, "alias": "changed"})
@@ -374,9 +528,21 @@ def load_flow_methods(names, namespace):
     import __future__
 
     tree = ast.parse((test_util.IPMI_DIR / "config_flow.py").read_text())
-    flow = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "IpmiConfigFlow")
+    flow = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "IpmiConfigFlow"
+    )
     nodes = [node for node in flow.body if getattr(node, "name", None) in names]
-    exec(compile(ast.Module(body=nodes, type_ignores=[]), "config_flow.py", "exec", flags=__future__.annotations.compiler_flag), namespace)
+    exec(
+        compile(
+            ast.Module(body=nodes, type_ignores=[]),
+            "config_flow.py",
+            "exec",
+            flags=__future__.annotations.compiler_flag,
+        ),
+        namespace,
+    )
     return namespace
 
 
@@ -385,11 +551,34 @@ def test_reconfigure_preserves_alias_on_input_and_write():
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    entry = SimpleNamespace(entry_id="entry", data={"alias": "original", "host": "bmc.example"}, options={}, unique_id="original")
-    namespace = {"CONF_ALIAS": "alias", "CONF_ADVANCED": "advanced", "_coerce_bool": lambda data, key, default: data.get(key, default), "_normalize_flow_options": lambda data: data, "_entry_data_from_config": dict, "format_entry_unique_id": test_util.util.format_entry_unique_id, "_format_host_port_alias": lambda data: data["alias"]}
+    entry = SimpleNamespace(
+        entry_id="entry",
+        data={"alias": "original", "host": "bmc.example"},
+        options={},
+        unique_id="original",
+    )
+    namespace = {
+        "CONF_ALIAS": "alias",
+        "CONF_ADVANCED": "advanced",
+        "_coerce_bool": lambda data, key, default: data.get(key, default),
+        "_normalize_flow_options": lambda data: data,
+        "_entry_data_from_config": dict,
+        "format_entry_unique_id": test_util.util.format_entry_unique_id,
+        "_format_host_port_alias": lambda data: data["alias"],
+    }
     load_flow_methods(["async_step_reconfigure", "_async_apply_reconfigure"], namespace)
-    flow = SimpleNamespace(_get_reconfigure_entry=lambda: entry, _merge_advanced_defaults=lambda: None, _async_finish_reconfigure=AsyncMock(), _async_current_entries=lambda: [entry], async_update_reload_and_abort=lambda entry, **kwargs: kwargs)
-    asyncio.run(namespace["async_step_reconfigure"](flow, {"alias": "changed", "host": "new.example"}))
+    flow = SimpleNamespace(
+        _get_reconfigure_entry=lambda: entry,
+        _merge_advanced_defaults=lambda: None,
+        _async_finish_reconfigure=AsyncMock(),
+        _async_current_entries=lambda: [entry],
+        async_update_reload_and_abort=lambda entry, **kwargs: kwargs,
+    )
+    asyncio.run(
+        namespace["async_step_reconfigure"](
+            flow, {"alias": "changed", "host": "new.example"}
+        )
+    )
     assert flow.ipmi_config["alias"] == "original"
     # Also guard the final write, even if another step changed the pending data.
     flow.ipmi_config["alias"] = "changed"
@@ -403,7 +592,60 @@ def test_unknown_outcome_traceback_omits_request_secrets(harness):
     import traceback
 
     srv = harness._make_server()
-    with patch.object(harness._server_mod.requests, "get", side_effect=harness._server_mod.requests.ReadTimeout("https://addon/?password=secret")):
+    with patch.object(
+        harness._server_mod.requests,
+        "get",
+        side_effect=harness._server_mod.requests.ReadTimeout(
+            "https://addon/?password=secret"
+        ),
+    ):
         with pytest.raises(harness._server_mod.IpmiChassisCommandError) as exc:
             srv.power_reset()
     assert "password=secret" not in "".join(traceback.format_exception(exc.value))
+
+
+def test_transport_settings_survive_flow_storage(harness):
+    import ast
+
+    namespace = dict(vars(__import__("const")))
+    namespace.update(
+        CONF_ADVANCED="advanced",
+        _normalize_flow_options=test_util.util.normalize_options,
+        effective_sensor_types=test_util.util.effective_sensor_types,
+    )
+    tree = ast.parse((test_util.IPMI_DIR / "config_flow.py").read_text())
+    option_keys = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and any(
+            getattr(target, "id", None) == "_OPTION_KEYS" for target in node.targets
+        )
+    )
+    exec(
+        compile(
+            ast.Module(body=[option_keys], type_ignores=[]), "config_flow.py", "exec"
+        ),
+        namespace,
+    )
+    load_definitions(
+        "config_flow.py",
+        ["_entry_data_from_config", "_entry_options_from_config", "_advanced_defaults"],
+        namespace,
+    )
+    config = {
+        "allow_legacy_rmcp": False,
+        "legacy_addon_query_auth": True,
+        "alias": "lab",
+    }
+    data = namespace["_entry_data_from_config"](config)
+    options = namespace["_entry_options_from_config"](config)
+    assert options["allow_legacy_rmcp"] is False
+    assert "allow_legacy_rmcp" not in data
+    assert data["legacy_addon_query_auth"] is True
+    srv = harness._make_server(**{**data, **options})
+    assert srv._legacy_addon_query_auth is True
+    assert srv._allow_legacy_rmcp is False
+    defaults = namespace["_advanced_defaults"]()
+    assert defaults["allow_legacy_rmcp"] is True
+    assert defaults["legacy_addon_query_auth"] is False

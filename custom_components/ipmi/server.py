@@ -59,9 +59,9 @@ _LOGGER = logging.getLogger(__name__)
 
 # HTTP statuses that mean "this addon build does not accept POST" → fall back to GET.
 _POST_UNSUPPORTED_STATUSES = frozenset({404, 405, 501})
-_UNCERTAIN_CHASSIS_ACTIONS = frozenset({
-    "power_reset", "power_cycle", "power_off", "soft_shutdown",
-})
+_UNCERTAIN_CHASSIS_ACTIONS = frozenset(
+    {"power_reset", "power_cycle", "power_off", "soft_shutdown"}
+)
 
 
 def _failed_before_connect(err: BaseException) -> bool:
@@ -258,7 +258,9 @@ class IpmiServer:
         self._addon_meta_probed = True
         url = f"{self._addon_url}/{ADDON_META_PATH}"
         try:
-            http_resp = requests.get(url, timeout=self._http_timeout(max_read=10), allow_redirects=False)
+            http_resp = requests.get(
+                url, timeout=self._http_timeout(max_read=10), allow_redirects=False
+            )
             if http_resp.status_code in {404, 405}:
                 return
             http_resp.raise_for_status()
@@ -396,6 +398,8 @@ class IpmiServer:
                 raise IpmiChassisCommandError("Chassis command outcome unknown (redirect)")
             http_resp.raise_for_status()
             response = http_resp.json()
+            if uncertain_action and not isinstance(response, dict):
+                raise IpmiChassisCommandError("Chassis command outcome unknown (invalid response)")
             self._record_addon_transport_success()
             if isinstance(response, dict):
                 self._ingest_addon_capabilities(response)
@@ -652,7 +656,9 @@ class IpmiServer:
         """Return a (re)used RMCP session. Caller must hold ``_rmcp_lock``."""
         if not self._should_try_rmcp():
             raise IpmiChassisCommandError("Legacy RMCP is disabled by connection policy")
-        if (self._addon_interface == "lanplus" or self._kg_key) and not self._warned_rmcp_downgrade:
+        if (
+            self._addon_interface == "lanplus" or self._kg_key
+        ) and not self._warned_rmcp_downgrade:
             _LOGGER.warning(
                 "Using legacy IPMI 1.5 RMCP for %s; lanplus encryption and Kg key "
                 "authentication are unavailable. Disable allow_legacy_rmcp to prevent this downgrade",
@@ -690,7 +696,9 @@ class IpmiServer:
     def _remaining_poll_time(self) -> float:
         """Check the shared budget between blocking backend operations."""
         deadline = getattr(self._poll_context, "deadline", None)
-        remaining = DEFAULT_UPDATE_BUDGET if deadline is None else deadline - time.monotonic()
+        remaining = (
+            DEFAULT_UPDATE_BUDGET if deadline is None else deadline - time.monotonic()
+        )
         if remaining <= 0:
             raise TimeoutError("IPMI poll deadline exceeded")
         return remaining
@@ -729,7 +737,8 @@ class IpmiServer:
                 if not json.get("success"):
                     message = str(json.get("message", ""))
                     _LOGGER.error(
-                        "%s", redact_connection_secrets(message, self._password, self._kg_key)
+                        "%s",
+                        redact_connection_secrets(message, self._password, self._kg_key),
                     )
                     self.auth_failed = looks_like_auth_error(message)
                     # Unsuccessful addon payload: try RMCP unless addon-only.
@@ -841,8 +850,10 @@ class IpmiServer:
         """Send a custom ipmitool-style command through the addon only."""
         try:
             cmd = substitute_command_fields(command, {
-                "host": self._host, "port": self._port,
-                "username": self._username, "password": self._password,
+                "host": self._host,
+                "port": self._port,
+                "username": self._username,
+                "password": self._password,
             })
         except ValueError as err:
             if ignore_errors:
