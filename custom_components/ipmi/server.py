@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import pyipmi
 import pyipmi.interfaces
 import requests
+from urllib3.exceptions import NewConnectionError
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import dispatcher_send
@@ -57,6 +58,21 @@ _LOGGER = logging.getLogger(__name__)
 
 # HTTP statuses that mean "this addon build does not accept POST" → fall back to GET.
 _POST_UNSUPPORTED_STATUSES = frozenset({404, 405, 501})
+_UNCERTAIN_CHASSIS_ACTIONS = frozenset({
+    "power_reset", "power_cycle", "power_off", "soft_shutdown",
+})
+
+
+def _failed_before_connect(err: BaseException) -> bool:
+    """Only positively identified connection-establishment failures permit replay."""
+    if isinstance(err, (requests.ConnectTimeout, NewConnectionError)):
+        return True
+    reason = getattr(err, "reason", None)
+    if isinstance(reason, BaseException) and _failed_before_connect(reason):
+        return True
+    return any(
+        _failed_before_connect(arg) for arg in err.args if isinstance(arg, BaseException)
+    )
 
 
 @dataclass
@@ -337,8 +353,9 @@ class IpmiServer:
 
         _LOGGER.debug("Addon request origin=%s path=%s", self._addon_origin, path)
 
+        uncertain_action = path in _UNCERTAIN_CHASSIS_ACTIONS
         try:
-            if self._addon_use_post:
+            if self._addon_use_post and not uncertain_action:
                 try:
                     http_resp = requests.post(
                         url,
@@ -370,6 +387,12 @@ class IpmiServer:
                 allow_redirects=False,
                 timeout=self._http_timeout(),
             )
+            # Route/method rejection precedes execution; other failures may have
+            # happened after the BMC accepted the command.
+            if uncertain_action and http_resp.status_code in _POST_UNSUPPORTED_STATUSES:
+                return None
+            if uncertain_action and 300 <= http_resp.status_code < 400:
+                raise IpmiChassisCommandError("Chassis command outcome unknown (redirect)")
             http_resp.raise_for_status()
             response = http_resp.json()
             self._record_addon_transport_success()
@@ -377,6 +400,11 @@ class IpmiServer:
                 self._ingest_addon_capabilities(response)
             return response
         except Exception as err:  # pylint: disable=broad-except
+            if uncertain_action and not _failed_before_connect(err):
+                raise IpmiChassisCommandError(
+                    f"Chassis command outcome unknown ({type(err).__name__}); "
+                    "check chassis state before retrying"
+                ) from err
             self._record_addon_transport_failure()
             _LOGGER.warning(
                 "ipmi-server addon unavailable at %s (%s)",
@@ -390,6 +418,12 @@ class IpmiServer:
         payload = self.get_from_addon(path)
         if payload is None:
             return False
+        if path in _UNCERTAIN_CHASSIS_ACTIONS:
+            if isinstance(payload, dict) and payload.get("success") is True:
+                return True
+            raise IpmiChassisCommandError(
+                "Chassis command outcome unknown; check chassis state before retrying"
+            )
         if addon_action_succeeded(payload):
             return True
         message = str(payload.get("message") or payload.get("output") or payload)

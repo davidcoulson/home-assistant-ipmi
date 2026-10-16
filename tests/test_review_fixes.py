@@ -183,3 +183,40 @@ def test_surviving_worker_prevents_overlapping_poll(harness):
             finally:
                 release.set()
             future.result(timeout=5)
+
+
+@pytest.mark.parametrize("action", ["power_reset", "power_cycle", "power_off", "soft_shutdown"])
+@pytest.mark.parametrize("failure", ["read_timeout", "connection_reset", "bad_json", "failure_payload"])
+def test_ambiguous_chassis_outcome_never_replays(harness, action, failure):
+    srv = harness._make_server()
+    requests = harness._server_mod.requests
+    response = MagicMock(status_code=200)
+    response.json.return_value = {"success": False}
+    effect = None
+    if failure == "read_timeout":
+        effect = requests.ReadTimeout("lost reply")
+    elif failure == "connection_reset":
+        effect = requests.ConnectionError("reset after submission")
+    elif failure == "bad_json":
+        response.json.side_effect = ValueError("invalid JSON")
+    with patch.object(requests, "get", return_value=response, side_effect=effect), patch.object(srv, "run_rmcp_command") as rmcp:
+        with pytest.raises(harness._server_mod.IpmiChassisCommandError, match="outcome unknown"):
+            getattr(srv, action)()
+    rmcp.assert_not_called()
+
+
+@pytest.mark.parametrize("failure", ["connect_timeout", "connection_refused", "route_rejected"])
+def test_pre_execution_chassis_failure_allows_fallback(harness, failure):
+    from urllib3.exceptions import MaxRetryError, NewConnectionError
+
+    srv = harness._make_server()
+    requests = harness._server_mod.requests
+    response = MagicMock(status_code=404)
+    effect = None
+    if failure == "connect_timeout":
+        effect = requests.ConnectTimeout()
+    elif failure == "connection_refused":
+        effect = requests.ConnectionError(MaxRetryError(None, "/", NewConnectionError(None, "refused")))
+    with patch.object(requests, "get", return_value=response, side_effect=effect), patch.object(srv, "run_rmcp_command") as rmcp:
+        srv.power_reset()
+    rmcp.assert_called_once()

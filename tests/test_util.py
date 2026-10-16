@@ -362,7 +362,7 @@ class TestIpmiServerLogic:
         with patch.object(
             srv, "get_from_addon", return_value={"success": False, "message": "busy"}
         ):
-            with pytest.raises(chassis_error, match="RMCP is disabled"):
+            with pytest.raises(chassis_error, match="outcome unknown"):
                 srv.soft_shutdown()
 
     def test_chassis_rmcp_failure_raises(self) -> None:
