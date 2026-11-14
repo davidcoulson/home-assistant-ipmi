@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import re
 from typing import Any
+from urllib.parse import quote, quote_plus
 
 _AUTH_ERROR_MARKERS = (
     "auth",
@@ -184,10 +185,11 @@ def redact_connection_secrets(
 ) -> str:
     """Remove password / kg key substrings from log-facing error text."""
     redacted = message
-    if password:
-        redacted = redacted.replace(str(password), "***")
-    if kg_key:
-        redacted = redacted.replace(str(kg_key), "***")
+    for secret in (password, kg_key):
+        if secret:
+            # requests puts the URL-encoded form in its exception text.
+            for variant in {str(secret), quote(str(secret)), quote_plus(str(secret))}:
+                redacted = redacted.replace(variant, "***")
     return redacted
 
 

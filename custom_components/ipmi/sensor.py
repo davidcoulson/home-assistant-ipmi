@@ -293,6 +293,8 @@ class IpmiSensor(
     @property
     def available(self) -> bool:
         """Return True if entity is available."""
+        if not super().available:
+            return False
         status = self.coordinator.data
 
         if self.entity_description.key == KEY_STATUS:
@@ -403,6 +405,8 @@ class IpmiEnergySensor(
     @property
     def available(self) -> bool:
         """Return True when power monitoring is active and the reading exists."""
+        if not super().available:
+            return False
         if not self._energy_monitoring_enabled():
             return False
         if not self._source_power_entity_enabled():
@@ -427,6 +431,13 @@ class IpmiEnergySensor(
 
         status = self.coordinator.data
         now = dt_util.utcnow()
+
+        if not self.coordinator.last_update_success:
+            # Do not integrate across an outage: re-seed on the next good poll.
+            self._last_power_w = None
+            self._last_integration_time = now
+            super()._handle_coordinator_update()
+            return
 
         if self._last_integration_time is None:
             self._last_integration_time = now

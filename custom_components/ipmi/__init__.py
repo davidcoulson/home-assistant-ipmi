@@ -200,7 +200,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.debug("IPMI Sensors Available: %s", deviceInfo)
 
-    entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     server_id = entry.entry_id
 
     hass_data = get_ipmi_data(hass)
@@ -238,11 +237,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if server and IPMI_DATA in server:
             await hass.async_add_executor_job(server[IPMI_DATA].close)
     return unload_ok
-
-
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update."""
-    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_migrate_entry(hass, config_entry: ConfigEntry):
