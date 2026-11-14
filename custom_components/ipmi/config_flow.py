@@ -4,13 +4,19 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 import logging
+import re
 from typing import Any
 
 import voluptuous as vol
 
 from homeassistant import exceptions
 from homeassistant.components import zeroconf
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, OptionsFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    OptionsFlow,
+    OptionsFlowWithReload,
+)
 from homeassistant.const import (
     CONF_ALIAS,
     CONF_BASE,
@@ -22,7 +28,11 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.data_entry_flow import FlowResult
-from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers import (
+    config_validation as cv,
+    entity_registry as er,
+    selector,
+)
 
 from . import IpmiServer
 from .const import (
@@ -375,7 +385,11 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             ),
         },
     )
-    await hass.async_add_executor_job(ipmi_data.update)
+    try:
+        await hass.async_add_executor_job(ipmi_data.update)
+    finally:
+        # update() caches an RMCP session; release it so the BMC slot is freed.
+        await hass.async_add_executor_job(ipmi_data.close)
 
     if not (device_info := ipmi_data._device_info):
         raise CannotConnect
@@ -389,6 +403,33 @@ def _format_host_port_alias(user_input: Mapping[str, Any]) -> str:
     port = user_input[CONF_PORT]
     alias = user_input[CONF_ALIAS]
     return f"{alias}@{host}:{port}"
+
+
+def _migrate_alias_unique_ids(
+    hass: HomeAssistant, entry: ConfigEntry, new_alias: str
+) -> None:
+    """Rewrite entity unique_ids that embed the alias when the alias changes."""
+    old_alias = entry.data[CONF_ALIAS]
+    if old_alias == new_alias:
+        return
+    prefix = entry.entry_id.lower()
+
+    def _clean(alias: str) -> str:
+        return re.sub(r"[^\w]", "_", alias).lower()
+
+    renames = (
+        (f"{prefix}_{old_alias}_", f"{prefix}_{new_alias}_"),
+        (f"{prefix}_{_clean(old_alias)}_", f"{prefix}_{_clean(new_alias)}_"),
+    )
+
+    @callback
+    def _update(registry_entry: er.RegistryEntry) -> dict[str, str] | None:
+        for old, new in renames:
+            if registry_entry.unique_id.startswith(old):
+                return {"new_unique_id": new + registry_entry.unique_id[len(old) :]}
+        return None
+
+    er.async_migrate_entries(hass, entry.entry_id, _update)
 
 
 class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -739,6 +780,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
             if other.entry_id != entry.entry_id and other.unique_id == unique_id:
                 return self.async_abort(reason="already_configured")
 
+        _migrate_alias_unique_ids(self.hass, entry, data[CONF_ALIAS])
         title = _format_host_port_alias(data)
         update_kwargs: dict[str, Any] = {
             "data": data,
@@ -771,7 +813,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            new_data = {**entry.data, **user_input}
+            new_data = {**entry.data, **entry.options, **user_input}
             _, errors = await self._async_validate_or_error(new_data)
             if not errors:
                 return self.async_update_reload_and_abort(
@@ -808,7 +850,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(config_entry)
 
 
-class OptionsFlowHandler(OptionsFlow):
+class OptionsFlowHandler(OptionsFlowWithReload):
     """Handle a option flow for ipmi."""
 
     def __init__(self, config_entry: ConfigEntry) -> None:

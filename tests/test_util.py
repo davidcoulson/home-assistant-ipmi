@@ -634,3 +634,13 @@ class TestIpmiServerLogic:
         srv.add_known_sensor("temp_cpu")
         self._poll(srv, two, announce)
         assert announce.call_count == 2
+
+
+def test_redact_connection_secrets_url_encoded() -> None:
+    """requests puts the URL-encoded password in exception text."""
+    from urllib.parse import quote, quote_plus
+
+    pw = "p@ss w!"
+    for form in (pw, quote(pw), quote_plus(pw)):
+        out = util.redact_connection_secrets(f"url /?password={form}&x=1", pw, None)
+        assert form not in out

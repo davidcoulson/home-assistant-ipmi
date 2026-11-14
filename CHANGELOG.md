@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.22.3-djc.1 — 2026-11-14 (fork)
+
+### Fixed
+
+- The BMC password and Kg key no longer reach the log in URL-encoded form
+- Config-flow validation closes its RMCP session
+- Sensors become unavailable when polling fails, and the energy sensor does not count across an outage
+- Changing the alias in Reconfigure keeps existing entities
+- Reauthentication uses the entry's options
+- Options, reconfigure and reauth reload the entry once
+- RMCP polls and power commands retry once when a cached BMC session has expired
+- RMCP sensors with the same name no longer overwrite each other
+
 ## 1.22.2 — 2026-08-24
 
 ### Fixed

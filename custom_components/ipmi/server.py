@@ -373,9 +373,18 @@ class IpmiServer:
     def get_from_rmcp(self) -> dict[str, Any] | None:
         """Poll device info and sensors via python-ipmi (RMCP)."""
         with self._rmcp_lock:
-            if self._power_only_poll():
-                return self._get_from_rmcp_power_only()
-            return self._get_from_rmcp_full()
+            poll = (
+                self._get_from_rmcp_power_only
+                if self._power_only_poll()
+                else self._get_from_rmcp_full
+            )
+            reused = self._rmcp_ipmi is not None
+            result = poll()
+            if result is None and reused:
+                # The cached session may have timed out on the BMC; the failed
+                # poll dropped it, so retry once on a fresh session.
+                result = poll()
+            return result
 
     def _get_from_rmcp_power_only(self) -> dict[str, Any] | None:
         """Poll chassis power and basic device id only (no FRU/SDR). Caller holds RMCP lock."""
@@ -489,6 +498,10 @@ class IpmiServer:
                         )
 
                         if category and id_string is not None:
+                            if id_string in json["states"]:
+                                # Same-named SDR records must not overwrite each other.
+                                id_string = f"{id_string}_{s.number}"
+                                name = f"{name} {s.number}"
                             json["sensors"][category][id_string] = name
                             json["states"][id_string] = value
             except Exception:
@@ -514,18 +527,24 @@ class IpmiServer:
             IpmiChassisCommandError: When the command cannot be sent or completes with error.
         """
         with self._rmcp_lock:
-            try:
-                ipmi = self._connect_unlocked()
+            # Retry once on a fresh session if a cached one has gone stale.
+            for attempt in (1, 2):
+                reused = self._rmcp_ipmi is not None
                 try:
-                    ipmi.chassis_control(command)
-                except Exception:
-                    self._invalidate_rmcp_session_unlocked()
-                    raise
-            except Exception as err:
-                raise IpmiChassisCommandError(
-                    f"RMCP chassis command failed for {self._host}: "
-                    f"{type(err).__name__}: {err}"
-                ) from err
+                    ipmi = self._connect_unlocked()
+                    try:
+                        ipmi.chassis_control(command)
+                    except Exception:
+                        self._invalidate_rmcp_session_unlocked()
+                        raise
+                    return
+                except Exception as err:
+                    if attempt == 1 and reused:
+                        continue
+                    raise IpmiChassisCommandError(
+                        f"RMCP chassis command failed for {self._host}: "
+                        f"{type(err).__name__}: {err}"
+                    ) from err
 
     def _invalidate_rmcp_session_unlocked(self) -> None:
         """Close and forget the cached RMCP session (caller must hold ``_rmcp_lock``)."""
