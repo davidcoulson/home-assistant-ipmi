@@ -66,6 +66,7 @@
         "title": "重新配置 IPMI 服务器",
         "description": "更新此条目的 BMC 连接详情。",
         "data": {
+          "alias": "别名",
           "host": "主机",
           "password": "密码",
           "port": "端口",

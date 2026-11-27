@@ -141,8 +141,6 @@ def _validate_kg_key(value: str) -> str:
 def _basic_schema(
     discovery_info: zeroconf.ZeroconfServiceInfo | None,
     defaults: Mapping[str, Any] | None = None,
-    *,
-    include_alias: bool = True,
 ) -> vol.Schema:
     """Schema for the essential connection settings."""
     defaults = defaults or {}
@@ -178,8 +176,6 @@ def _basic_schema(
             vol.Optional(CONF_ADVANCED, default=False): _BOOLEAN_SELECTOR,
         }
     )
-    if not include_alias:
-        schema = {key: value for key, value in schema.items() if key.schema != CONF_ALIAS}
     return vol.Schema(schema)
 
 
@@ -660,7 +656,6 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
             advanced = _coerce_bool(user_input, CONF_ADVANCED, False)
             user_input.pop(CONF_ADVANCED, None)
             self.ipmi_config = {**entry.data, **entry.options, **user_input}
-            self.ipmi_config[CONF_ALIAS] = entry.data[CONF_ALIAS]
             self._show_advanced = advanced
             if advanced:
                 return await self.async_step_reconfigure_advanced()
@@ -671,7 +666,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
         self.ipmi_config = {**entry.data, **entry.options}
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=_basic_schema(None, self.ipmi_config, include_alias=False),
+            data_schema=_basic_schema(None, self.ipmi_config),
             errors=errors,
         )
 
@@ -799,7 +794,6 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
     async def _async_apply_reconfigure(self, entry: ConfigEntry) -> FlowResult:
         """Write reconfigure data/options and reload."""
         data = _entry_data_from_config(self.ipmi_config)
-        data[CONF_ALIAS] = entry.data[CONF_ALIAS]
         unique_id = format_entry_unique_id(data[CONF_ALIAS])
         for other in self._async_current_entries():
             if other.entry_id != entry.entry_id and other.unique_id == unique_id:
