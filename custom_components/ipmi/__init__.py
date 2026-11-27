@@ -27,6 +27,8 @@ from .const import (
     CONF_ADDON_PORT,
     CONF_BACKEND_PREFERENCE,
     CONF_IGNORE_CHECKSUM_ERRORS,
+    CONF_LEGACY_ADDON_QUERY_AUTH,
+    CONF_ALLOW_LEGACY_RMCP,
     CONF_IPMI_SERVER_HOST,
     CONF_KG_KEY,
     CONF_PRIVILEGE_LEVEL,
@@ -186,8 +188,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             "addon_port": config.get(CONF_ADDON_PORT),
             "addon_interface": config.get(CONF_ADDON_INTERFACE),
             "addon_extra_params": config.get(CONF_ADDON_PARAMS),
+            CONF_LEGACY_ADDON_QUERY_AUTH: config.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
             CONF_IGNORE_CHECKSUM_ERRORS: config.get(CONF_IGNORE_CHECKSUM_ERRORS, False),
             "backend_preference": backend_preference,
+            CONF_ALLOW_LEGACY_RMCP: options.get(CONF_ALLOW_LEGACY_RMCP, True),
             CONF_SENSOR_TYPES: sensor_types,
             CONF_MINIMAL_IPMI: options.get(CONF_MINIMAL_IPMI, DEFAULT_MINIMAL_IPMI),
         },
@@ -195,7 +199,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = IpmiCoordinator(hass, scan_interval, data)
 
     # Fetch initial data so we have data when entities subscribe
-    await coordinator.async_config_entry_first_refresh()
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except BaseException:
+        await hass.async_add_executor_job(data.close)
+        raise
     deviceInfo = coordinator.data
 
     _LOGGER.debug("IPMI Sensors Available: %s", deviceInfo)

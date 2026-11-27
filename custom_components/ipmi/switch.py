@@ -103,12 +103,12 @@ class IpmiSwitch(CoordinatorEntity[DataUpdateCoordinator[dict[str, str]]], Switc
         )
 
     @property
-    def is_on(self) -> bool:
+    def is_on(self) -> bool | None:
         """If switch is on."""
         if self._pending_off_until and dt_util.utcnow() < self._pending_off_until:
             return False
         status = self.coordinator.data
-        return bool(status.power_on)
+        return status.power_on
 
     def _clear_pending_off(self) -> None:
         """Cancel any active post-shutdown display hold."""

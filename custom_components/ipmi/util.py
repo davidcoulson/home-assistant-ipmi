@@ -185,11 +185,14 @@ def redact_connection_secrets(
 ) -> str:
     """Remove password / kg key substrings from log-facing error text."""
     redacted = message
+    variants = set()
     for secret in (password, kg_key):
         if secret:
-            # requests puts the URL-encoded form in its exception text.
-            for variant in {str(secret), quote(str(secret)), quote_plus(str(secret))}:
-                redacted = redacted.replace(variant, "***")
+            variants.update(
+                (str(secret), quote(str(secret)), quote(str(secret), safe=""), quote_plus(str(secret)))
+            )
+    for variant in sorted(variants, key=len, reverse=True):
+        redacted = redacted.replace(variant, "***")
     return redacted
 
 
@@ -247,8 +250,25 @@ def categorize_rmcp_sensor(
 
 def addon_action_succeeded(response: dict[str, Any] | None) -> bool:
     """Return True when an addon HTTP JSON payload indicates success."""
-    return bool(response) and bool(response.get("success"))
+    return isinstance(response, dict) and response.get("success") is True
 
 
 class IpmiChassisCommandError(RuntimeError):
     """Raised when a chassis power command fails on all available backends."""
+
+
+def substitute_command_fields(command: str, fields: Mapping[str, Any]) -> str:
+    """Substitute fields that cannot alter the addon's space-delimited CSV argv.
+
+    The addon uses PHP str_getcsv(params, ' ', '"', ''). Reject whitespace and
+    quotes rather than guessing whether callers have already quoted a token.
+    A single pass also prevents placeholders inside credentials expanding again.
+    """
+
+    def replace(match: re.Match[str]) -> str:
+        value = str(fields[match.group(1)] or "")
+        if any(char.isspace() or char in "\"'" for char in value):
+            raise ValueError("Command placeholders cannot contain whitespace or quotes")
+        return value
+
+    return re.sub(r"\$(host|port|username|password)\$", replace, command)

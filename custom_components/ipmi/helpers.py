@@ -29,7 +29,10 @@ def get_ipmi_data(hass: HomeAssistant) -> IpmiData:
 
 def get_ipmi_server(hass: HomeAssistant, server_id: str) -> dict[str, Any]:
     """Get IPMI server runtime dict from hass.data."""
-    return get_ipmi_data(hass)[SERVERS][server_id]
+    server = hass.data.get(DOMAIN, {}).get(SERVERS, {}).get(server_id)
+    if server is None:
+        raise HomeAssistantError("IPMI server is unavailable; load the config entry before retrying")
+    return server
 
 
 def device_info_from_ipmi_server(data: IpmiServer, unique_id: str) -> DeviceInfo:

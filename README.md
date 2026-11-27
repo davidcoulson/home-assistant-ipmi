@@ -78,6 +78,8 @@ Integration options (Configure) and advanced setup / reconfigure:
 - **Create energy sensors from power readings** — kWh sensors for the Energy dashboard (default: on; disable if you only want raw power)
 - **Power switch off delay** (seconds) — after soft shutdown, keep the power switch off while the OS stops (default: 60; set to 0 to follow live BMC state immediately; does not affect the State sensor)
 - **Minimal IPMI (power only)** — for BMCs with a limited command set (e.g. [Sipeed NanoKVM](https://wiki.sipeed.com/hardware/en/kvm/NanoKVM/ipmi.html)): skips FRU and sensor polling; power status, binary sensor, switch, and buttons only. Status polling uses python-ipmi (RMCP), not the addon full poll. Chassis commands still use the addon when available.
+- **Allow legacy RMCP** — enabled by default to preserve fallback. Disable to prevent IPMI 1.5 RMCP when the addon interface is `lanplus` or a Kg key is set. Legacy RMCP cannot provide lanplus encryption or Kg authentication.
+- **Legacy addon query authentication** — advanced setup/reconfigure only; enable for older addons that do not accept secret headers. This puts credentials in URLs.
 - **Connection backend preference** — `auto` (default: try addon first, then RMCP), `addon` (addon only), or `rmcp` (python-ipmi only; skips addon probes). Default matches historical behavior.
 
 During initial setup or reconfigure, enable **Configure advanced options** to set sensor filters, energy sensors, minimal IPMI, and backend preference. The same settings remain editable later under **Configure**.
@@ -85,7 +87,7 @@ Changing filters does not remove already created entities; enabling a type later
 
 ### Reconfigure and reauthentication
 
-- Use **Reconfigure** on the integration entry to update host, port, credentials, addon URL, Kg key, and related settings
+- Use **Reconfigure** on the integration entry to update host, port, credentials, addon URL, Kg key, and related settings. The identity alias stays fixed to preserve entity IDs.
 - If authentication fails clearly, Home Assistant may prompt for **reauthentication** (username/password)
 
 ### Diagnostics
@@ -110,7 +112,13 @@ Alternatively, you can add Home Assistant's **Riemann sum integral** helper on a
 
 Sends a custom ipmitool-style command through the addon HTTP API only (not available on RMCP-only connections). Placeholders `$host$`, `$port$`, `$username$`, and `$password$` are substituted. If the addon is unreachable or backend preference is `rmcp`, the service returns a clear error (or an empty message when *Ignore errors* is enabled).
 
-The addon API uses GET with query parameters. POST is only used if it has already proven to return a successful payload (current addon builds ignore JSON bodies).
+The addon API uses GET, with password and Kg key in secret headers by default. Redirects are disabled. Use HTTPS for remote addons; plain HTTP triggers a warning. Older addons require the explicit legacy query authentication option.
+
+Custom commands still use the addon's query-based `params` field. A password embedded in a command (including `$password$`) therefore remains in the URL; moving arbitrary command arguments to a body requires an addon API change. Placeholder values containing whitespace or quotes are rejected before sending, to preserve the addon's CSV argument boundaries. Use the dedicated chassis buttons for power commands.
+
+Reset, cycle, off, and soft shutdown report **outcome unknown** after a lost or ambiguous addon response. Check the chassis state before retrying; these commands only fall back to RMCP on a confirmed connection-establishment failure or route/method rejection.
+
+Polling uses a shared 55-second cooperative budget and prevents overlapping polls after coordinator cancellation. A blocking library call or trickling HTTP response can still exceed that budget; a hard deadline requires a cancellable transport or process isolation.
 
 ### Power control in automations
 

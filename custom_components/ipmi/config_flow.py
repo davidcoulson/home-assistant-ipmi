@@ -44,6 +44,8 @@ from .const import (
     CONF_BACKEND_PREFERENCE,
     CONF_CREATE_ENERGY_SENSORS,
     CONF_IGNORE_CHECKSUM_ERRORS,
+    CONF_LEGACY_ADDON_QUERY_AUTH,
+    CONF_ALLOW_LEGACY_RMCP,
     CONF_MINIMAL_IPMI,
     CONF_POWER_OFF_DELAY,
     CONF_IPMI_SERVER_HOST,
@@ -208,6 +210,7 @@ _OPTION_KEYS = {
     CONF_SENSOR_TYPES,
     CONF_BACKEND_PREFERENCE,
     CONF_CREATE_ENERGY_SENSORS,
+    CONF_ALLOW_LEGACY_RMCP,
 }
 
 
@@ -239,9 +242,17 @@ def _advanced_schema(
                 default=defaults.get(CONF_ADDON_INTERFACE, DEFAULT_INTERFACE_TYPE),
             ): _INTERFACE_SELECTOR,
             vol.Optional(
+                CONF_LEGACY_ADDON_QUERY_AUTH,
+                default=defaults.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
+            ): _BOOLEAN_SELECTOR,
+            vol.Optional(
                 CONF_ADDON_PARAMS,
                 default=defaults.get(CONF_ADDON_PARAMS) or "",
             ): cv.string,
+            vol.Optional(
+                CONF_ALLOW_LEGACY_RMCP,
+                default=defaults.get(CONF_ALLOW_LEGACY_RMCP, True),
+            ): _BOOLEAN_SELECTOR,
             vol.Optional(
                 CONF_BACKEND_PREFERENCE,
                 default=defaults.get(
@@ -288,6 +299,10 @@ def _options_schema(
                 default=defaults.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
             ): vol.All(vol.Coerce(int), vol.Clamp(min=10, max=300)),
             vol.Optional(
+                CONF_ALLOW_LEGACY_RMCP,
+                default=defaults.get(CONF_ALLOW_LEGACY_RMCP, True),
+            ): _BOOLEAN_SELECTOR,
+            vol.Optional(
                 CONF_BACKEND_PREFERENCE,
                 default=defaults.get(CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE),
             ): _backend_preference_selector(),
@@ -314,6 +329,8 @@ def _options_schema(
 def _advanced_defaults() -> dict[str, Any]:
     """Default advanced values used when the advanced step is skipped."""
     return {
+        CONF_ALLOW_LEGACY_RMCP: True,
+        CONF_LEGACY_ADDON_QUERY_AUTH: False,
         CONF_KG_KEY: DEFAULT_KG_KEY,
         CONF_PRIVILEGE_LEVEL: DEFAULT_PRIVILEGE_LEVEL,
         CONF_IPMI_SERVER_HOST: DEFAULT_IPMI_SERVER_HOST,
@@ -343,6 +360,7 @@ def _entry_options_from_config(config: Mapping[str, Any]) -> dict[str, Any]:
         normalized, default_types=DEFAULT_SENSOR_TYPES
     )
     return {
+        CONF_ALLOW_LEGACY_RMCP: normalized.get(CONF_ALLOW_LEGACY_RMCP, True),
         CONF_SENSOR_TYPES: sensor_types,
         CONF_BACKEND_PREFERENCE: normalized.get(
             CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE
@@ -376,6 +394,8 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
             "addon_port": data.get(CONF_ADDON_PORT),
             "addon_interface": data.get(CONF_ADDON_INTERFACE),
             "addon_extra_params": data.get(CONF_ADDON_PARAMS),
+            CONF_ALLOW_LEGACY_RMCP: data.get(CONF_ALLOW_LEGACY_RMCP, True),
+            CONF_LEGACY_ADDON_QUERY_AUTH: data.get(CONF_LEGACY_ADDON_QUERY_AUTH, False),
             CONF_IGNORE_CHECKSUM_ERRORS: data.get(CONF_IGNORE_CHECKSUM_ERRORS, False),
             "backend_preference": data.get(
                 CONF_BACKEND_PREFERENCE, DEFAULT_BACKEND_PREFERENCE
@@ -387,14 +407,13 @@ async def validate_input(hass: HomeAssistant, data: dict[str, Any]) -> dict[str,
     )
     try:
         await hass.async_add_executor_job(ipmi_data.update)
+
+        if not (device_info := ipmi_data._device_info):
+            raise CannotConnect
+
+        return {"device_info": device_info}
     finally:
-        # update() caches an RMCP session; release it so the BMC slot is freed.
         await hass.async_add_executor_job(ipmi_data.close)
-
-    if not (device_info := ipmi_data._device_info):
-        raise CannotConnect
-
-    return {"device_info": device_info}
 
 
 def _format_host_port_alias(user_input: Mapping[str, Any]) -> str:
@@ -794,7 +813,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
                 **entry.options,
                 **_entry_options_from_config(self.ipmi_config),
             }
-        return self.async_update_reload_and_abort(entry, **update_kwargs)
+        return self.async_update_and_abort(entry, **update_kwargs)
 
     async def async_step_reauth(
         self, entry_data: Mapping[str, Any]
@@ -816,7 +835,7 @@ class IpmiConfigFlow(ConfigFlow, domain=DOMAIN):
             new_data = {**entry.data, **entry.options, **user_input}
             _, errors = await self._async_validate_or_error(new_data)
             if not errors:
-                return self.async_update_reload_and_abort(
+                return self.async_update_and_abort(
                     entry,
                     data_updates=user_input,
                     reason="reauth_successful",

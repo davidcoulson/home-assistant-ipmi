@@ -41,7 +41,9 @@
           "sensor_types": "Types de capteurs à découvrir",
           "backend_preference": "Préférence de backend de connexion",
           "create_energy_sensors": "Créer des capteurs d'énergie à partir de la puissance",
-          "minimal_ipmi": "IPMI minimal (alimentation uniquement)"
+          "minimal_ipmi": "IPMI minimal (alimentation uniquement)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Optionnel. Nécessite l'add-on ipmi-server ; non pris en charge par le repli python-ipmi.",
@@ -80,7 +82,9 @@
           "sensor_types": "Types de capteurs à découvrir",
           "backend_preference": "Préférence de backend de connexion",
           "create_energy_sensors": "Créer des capteurs d'énergie à partir de la puissance",
-          "minimal_ipmi": "IPMI minimal (alimentation uniquement)"
+          "minimal_ipmi": "IPMI minimal (alimentation uniquement)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Optionnel. Nécessite l'add-on ipmi-server ; non pris en charge par le repli python-ipmi.",
@@ -156,7 +160,8 @@
           "backend_preference": "Préférence de backend de connexion",
           "create_energy_sensors": "Créer des capteurs d'énergie à partir de la puissance",
           "minimal_ipmi": "IPMI minimal (alimentation uniquement)",
-          "power_off_delay": "Délai d'arrêt de l'interrupteur (secondes)"
+          "power_off_delay": "Délai d'arrêt de l'interrupteur (secondes)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "sensor_types": "Seuls les types sélectionnés sont créés pour les nouveaux capteurs. Par défaut, comportement précédent (tous les types).",

@@ -362,7 +362,7 @@ class TestIpmiServerLogic:
         with patch.object(
             srv, "get_from_addon", return_value={"success": False, "message": "busy"}
         ):
-            with pytest.raises(chassis_error, match="RMCP is disabled"):
+            with pytest.raises(chassis_error, match="outcome unknown"):
                 srv.soft_shutdown()
 
     def test_chassis_rmcp_failure_raises(self) -> None:
@@ -382,7 +382,7 @@ class TestIpmiServerLogic:
         with patch.object(
             srv, "_connect_unlocked", side_effect=OSError("connection refused")
         ):
-            with pytest.raises(chassis_error, match="connection refused"):
+            with pytest.raises(chassis_error, match="OSError"):
                 srv.run_rmcp_command(0)
 
     def test_chassis_does_not_rmcp_when_addon_succeeds(self) -> None:

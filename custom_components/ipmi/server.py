@@ -8,10 +8,12 @@ import logging
 import threading
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import pyipmi
 import pyipmi.interfaces
 import requests
+from urllib3.exceptions import NewConnectionError
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.dispatcher import dispatcher_send
@@ -27,10 +29,13 @@ from .const import (
     BACKEND_PREFERENCE_RMCP,
     BACKEND_RMCP,
     CONF_IGNORE_CHECKSUM_ERRORS,
+    CONF_LEGACY_ADDON_QUERY_AUTH,
+    CONF_ALLOW_LEGACY_RMCP,
     DEFAULT_BACKEND_PREFERENCE,
     DEFAULT_HTTP_CONNECT_TIMEOUT,
     DEFAULT_HTTP_TIMEOUT,
     DEFAULT_SENSOR_TYPES,
+    DEFAULT_UPDATE_BUDGET,
     IPMI_NEW_SENSOR_SIGNAL,
     SENSOR_TYPES,
 )
@@ -47,12 +52,28 @@ from .util import (
     power_only_poll,
     redact_connection_secrets,
     update_addon_capabilities,
+    substitute_command_fields,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
 # HTTP statuses that mean "this addon build does not accept POST" → fall back to GET.
 _POST_UNSUPPORTED_STATUSES = frozenset({404, 405, 501})
+_UNCERTAIN_CHASSIS_ACTIONS = frozenset(
+    {"power_reset", "power_cycle", "power_off", "soft_shutdown"}
+)
+
+
+def _failed_before_connect(err: BaseException) -> bool:
+    """Only positively identified connection-establishment failures permit replay."""
+    if isinstance(err, (requests.ConnectTimeout, NewConnectionError)):
+        return True
+    reason = getattr(err, "reason", None)
+    if isinstance(reason, BaseException) and _failed_before_connect(reason):
+        return True
+    return any(
+        _failed_before_connect(arg) for arg in err.args if isinstance(arg, BaseException)
+    )
 
 
 @dataclass
@@ -60,7 +81,7 @@ class IpmiDeviceInfo:
     """Device information for the IPMI server."""
 
     device: dict[str, Any] = field(default_factory=dict)
-    power_on: bool = False
+    power_on: bool | None = None
     sensors: dict[str, dict[str, str]] = field(default_factory=dict)
     states: dict[str, Any] = field(default_factory=dict)
     statuses: dict[str, str] = field(default_factory=dict)
@@ -97,6 +118,12 @@ class IpmiServer:
         )
         self._addon_interface = connection_data.get("addon_interface")
         self._addon_extra_params = connection_data.get("addon_extra_params")
+        self._legacy_addon_query_auth = connection_data.get(
+            CONF_LEGACY_ADDON_QUERY_AUTH, False
+        )
+        self._allow_legacy_rmcp = connection_data.get(CONF_ALLOW_LEGACY_RMCP, True)
+        self._warned_rmcp_downgrade = False
+        self._warned_insecure_http = False
         self._ignore_checksum_errors = connection_data.get(
             CONF_IGNORE_CHECKSUM_ERRORS, False
         )
@@ -126,6 +153,14 @@ class IpmiServer:
         # Reused RMCP session (reconnected on error).
         self._rmcp_ipmi: pyipmi.Ipmi | None = None
         self._rmcp_lock = threading.Lock()
+        self._update_lock = threading.Lock()
+        self._poll_context = threading.local()
+
+    @property
+    def _addon_origin(self) -> str:
+        """Return an endpoint origin without userinfo, query, or path secrets."""
+        parts = urlsplit(self._addon_url)
+        return f"{parts.scheme}://{parts.hostname}"
 
     @property
     def name(self) -> str:
@@ -170,14 +205,15 @@ class IpmiServer:
             "host": self._host,
             "port": self._port,
             "user": self._username,
-            "password": self._password,
         }
 
         if self._addon_interface is not None and self._addon_interface != "auto":
             params["interface"] = self._addon_interface
 
-        if self._kg_key:
-            params["kg_key"] = self._kg_key
+        if self._legacy_addon_query_auth:
+            params["password"] = self._password
+            if self._kg_key:
+                params["kg_key"] = self._kg_key
 
         if self._privilege_level:
             params["privilege_level"] = self._privilege_level
@@ -222,7 +258,9 @@ class IpmiServer:
         self._addon_meta_probed = True
         url = f"{self._addon_url}/{ADDON_META_PATH}"
         try:
-            http_resp = requests.get(url, timeout=10)
+            http_resp = requests.get(
+                url, timeout=self._http_timeout(max_read=10), allow_redirects=False
+            )
             if http_resp.status_code in {404, 405}:
                 return
             http_resp.raise_for_status()
@@ -233,7 +271,7 @@ class IpmiServer:
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.debug(
                 "Addon meta probe at %s failed (%s); continuing with legacy behavior",
-                url,
+                self._addon_origin,
                 type(err).__name__,
             )
 
@@ -248,7 +286,7 @@ class IpmiServer:
             if time.monotonic() < self._addon_skip_until:
                 _LOGGER.debug(
                     "Skipping addon probe for %s until cooldown ends",
-                    self._addon_url,
+                    self._addon_origin,
                 )
                 return False
             # Cooldown expired — allow another probe attempt.
@@ -257,7 +295,10 @@ class IpmiServer:
 
     def _should_try_rmcp(self) -> bool:
         """Whether RMCP fallback / primary is allowed."""
-        return self._backend_preference != BACKEND_PREFERENCE_ADDON
+        return self._backend_preference != BACKEND_PREFERENCE_ADDON and (
+            self._allow_legacy_rmcp
+            or not (self._addon_interface == "lanplus" or self._kg_key)
+        )
 
     def _record_addon_transport_failure(self) -> None:
         """Track consecutive addon transport failures for auto-mode short-circuit."""
@@ -292,28 +333,39 @@ class IpmiServer:
         if not self._should_try_addon():
             return None
 
+        origin = urlsplit(self._addon_url)
+        if (
+            origin.scheme == "http"
+            and origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+            and not self._warned_insecure_http
+        ):
+            _LOGGER.warning(
+                "Remote addon uses plain HTTP; credentials are unencrypted. Use HTTPS"
+            )
+            self._warned_insecure_http = True
+        headers = {}
+        if not self._legacy_addon_query_auth:
+            headers = {
+                "X-Ipmi-Password": self._password or "",
+                "X-Ipmi-Kg-Key": self._kg_key or "",
+            }
         params = self._addon_query_params(extra)
         url = self._addon_url
         if path is not None:
             url = f"{url}/{path}"
 
-        _LOGGER.debug(
-            "Addon request url=%s host=%s port=%s user=%s path=%s post=%s",
-            url,
-            self._host,
-            self._port,
-            self._username,
-            path,
-            self._addon_use_post,
-        )
+        _LOGGER.debug("Addon request origin=%s path=%s", self._addon_origin, path)
 
+        uncertain_action = path in _UNCERTAIN_CHASSIS_ACTIONS
         try:
-            if self._addon_use_post:
+            if self._addon_use_post and not uncertain_action:
                 try:
                     http_resp = requests.post(
                         url,
                         json=params,
-                        timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
+                        headers=headers,
+                        allow_redirects=False,
+                        timeout=self._http_timeout(),
                     )
                     if http_resp.status_code not in _POST_UNSUPPORTED_STATUSES:
                         http_resp.raise_for_status()
@@ -326,7 +378,7 @@ class IpmiServer:
                     # POST not usable for this addon build — stick to GET.
                     self._addon_use_post = False
                     _LOGGER.debug(
-                        "Addon POST not usable; using GET for %s", self._addon_url
+                        "Addon POST not usable; using GET for %s", self._addon_origin
                     )
                 except Exception:  # pylint: disable=broad-except
                     self._addon_use_post = False
@@ -334,24 +386,35 @@ class IpmiServer:
             http_resp = requests.get(
                 url,
                 params=params,
-                timeout=(DEFAULT_HTTP_CONNECT_TIMEOUT, DEFAULT_HTTP_TIMEOUT),
+                headers=headers,
+                allow_redirects=False,
+                timeout=self._http_timeout(),
             )
+            # Route/method rejection precedes execution; other failures may have
+            # happened after the BMC accepted the command.
+            if uncertain_action and http_resp.status_code in _POST_UNSUPPORTED_STATUSES:
+                return None
+            if uncertain_action and 300 <= http_resp.status_code < 400:
+                raise IpmiChassisCommandError("Chassis command outcome unknown (redirect)")
             http_resp.raise_for_status()
             response = http_resp.json()
+            if not isinstance(response, dict):
+                raise ValueError("Invalid addon response: expected an object")
             self._record_addon_transport_success()
             if isinstance(response, dict):
                 self._ingest_addon_capabilities(response)
             return response
         except Exception as err:  # pylint: disable=broad-except
-            err_msg = redact_connection_secrets(
-                str(err), self._password, self._kg_key
-            )
+            if uncertain_action and not _failed_before_connect(err):
+                raise IpmiChassisCommandError(
+                    f"Chassis command outcome unknown ({type(err).__name__}); "
+                    "check chassis state before retrying"
+                ) from None
             self._record_addon_transport_failure()
             _LOGGER.warning(
-                "ipmi-server addon unavailable at %s (%s: %s); falling back to RMCP",
-                self._addon_url,
+                "ipmi-server addon unavailable at %s (%s)",
+                self._addon_origin,
                 type(err).__name__,
-                err_msg,
             )
             return None
 
@@ -360,13 +423,18 @@ class IpmiServer:
         payload = self.get_from_addon(path)
         if payload is None:
             return False
+        if path in _UNCERTAIN_CHASSIS_ACTIONS:
+            if isinstance(payload, dict) and payload.get("success") is True:
+                return True
+            raise IpmiChassisCommandError(
+                "Chassis command outcome unknown; check chassis state before retrying"
+            )
         if addon_action_succeeded(payload):
             return True
-        message = str(payload.get("message") or payload.get("output") or payload)
         _LOGGER.warning(
-            "Addon action %s failed (%s); falling back to RMCP if allowed",
+            "Addon action %s failed at %s; falling back to RMCP if allowed",
             path,
-            redact_connection_secrets(message, self._password, self._kg_key),
+            self._addon_origin,
         )
         return False
 
@@ -409,7 +477,9 @@ class IpmiServer:
                 self._invalidate_rmcp_session_unlocked()
                 raise
         except Exception as err:  # pylint: disable=broad-except
-            self._last_rmcp_error = f"{type(err).__name__}: {err}"
+            self._last_rmcp_error = redact_connection_secrets(
+                f"{type(err).__name__}: {err}", self._password, self._kg_key
+            )
             _LOGGER.warning(
                 "RMCP power-only poll for IPMI server %s failed: %s",
                 self._host,
@@ -467,13 +537,20 @@ class IpmiServer:
                     )
                 else:
                     for s in iter_fct():
-                        name = getattr(s, "device_id_string", None)
-                        id_string = generate_sensor_id(name) if name else name
-
-                        sensor_type = getattr(s, "sensor_type_code", None)
+                        self._remaining_poll_time()
+                        category = None
+                        id_string = None
                         value = None
-
                         try:
+                            category = categorize_rmcp_sensor(
+                                getattr(s, "sensor_type_code", None),
+                                getattr(s, "units_2", None),
+                            )
+                            if category not in self._sensor_types:
+                                continue
+                            name = getattr(s, "device_id_string", None)
+                            id_string = generate_sensor_id(name) if name else name
+
                             if s.type is pyipmi.sdr.SDR_TYPE_FULL_SENSOR_RECORD:
                                 (value, _states) = ipmi.get_sensor_reading(s.number)
                                 if value is not None:
@@ -482,20 +559,11 @@ class IpmiServer:
                             elif s.type is pyipmi.sdr.SDR_TYPE_COMPACT_SENSOR_RECORD:
                                 (value, _states) = ipmi.get_sensor_reading(s.number)
 
-                        except pyipmi.errors.CompletionCodeError as e:
-                            if s.type in (
-                                pyipmi.sdr.SDR_TYPE_COMPACT_SENSOR_RECORD,
-                                pyipmi.sdr.SDR_TYPE_FULL_SENSOR_RECORD,
-                            ):
-                                _LOGGER.debug(
-                                    "0x{:04x} | {:3d} | {:18s} | ERR: CC=0x{:02x}".format(
-                                        s.id, s.number, s.device_id_string, e.cc
-                                    )
-                                )
-
-                        category = categorize_rmcp_sensor(
-                            sensor_type, getattr(s, "units_2", None)
-                        )
+                        except Exception as err:  # pylint: disable=broad-except
+                            value = None
+                            _LOGGER.debug(
+                                "RMCP sensor reading failed (%s)", type(err).__name__
+                            )
 
                         if category and id_string is not None:
                             if id_string in json["states"]:
@@ -510,7 +578,9 @@ class IpmiServer:
                 raise
 
         except Exception as err:  # pylint: disable=broad-except
-            self._last_rmcp_error = f"{type(err).__name__}: {err}"
+            self._last_rmcp_error = redact_connection_secrets(
+                f"{type(err).__name__}: {err}", self._password, self._kg_key
+            )
             _LOGGER.warning(
                 "RMCP connection to IPMI server %s failed: %s",
                 self._host,
@@ -543,8 +613,8 @@ class IpmiServer:
                         continue
                     raise IpmiChassisCommandError(
                         f"RMCP chassis command failed for {self._host}: "
-                        f"{type(err).__name__}: {err}"
-                    ) from err
+                        f"{type(err).__name__}"
+                    ) from None
 
     def _invalidate_rmcp_session_unlocked(self) -> None:
         """Close and forget the cached RMCP session (caller must hold ``_rmcp_lock``)."""
@@ -564,15 +634,16 @@ class IpmiServer:
             ipmi.close()
         except Exception as err:  # pylint: disable=broad-except
             _LOGGER.debug(
-                "Error closing IPMI connection to %s: %s: %s",
+                "Error closing IPMI connection to %s: %s",
                 self._host,
                 type(err).__name__,
-                err,
             )
 
     def close(self) -> None:
         """Release the cached RMCP session (call on unload)."""
-        with self._rmcp_lock:
+        # A cancelled executor await can leave a poll running. Wait for it
+        # before closing so it cannot open another session after cleanup.
+        with self._update_lock, self._rmcp_lock:
             self._invalidate_rmcp_session_unlocked()
 
     def connect(self) -> pyipmi.Ipmi:
@@ -582,6 +653,17 @@ class IpmiServer:
 
     def _connect_unlocked(self) -> pyipmi.Ipmi:
         """Return a (re)used RMCP session. Caller must hold ``_rmcp_lock``."""
+        if not self._should_try_rmcp():
+            raise IpmiChassisCommandError("Legacy RMCP is disabled by connection policy")
+        if (
+            self._addon_interface == "lanplus" or self._kg_key
+        ) and not self._warned_rmcp_downgrade:
+            _LOGGER.warning(
+                "Using legacy IPMI 1.5 RMCP for %s; lanplus encryption and Kg key "
+                "authentication are unavailable. Disable allow_legacy_rmcp to prevent this downgrade",
+                self._host,
+            )
+            self._warned_rmcp_downgrade = True
         if self._rmcp_ipmi is not None:
             return self._rmcp_ipmi
 
@@ -606,14 +688,44 @@ class IpmiServer:
             ipmi.session.set_priv_level(self._privilege_level)
 
         ipmi.target = pyipmi.Target(ipmb_address=0x20)
-        ipmi.open()
+        try:
+            ipmi.open()
+        except Exception:
+            self._close_ipmi(ipmi)
+            raise
         self._rmcp_ipmi = ipmi
         return ipmi
 
+    def _remaining_poll_time(self) -> float:
+        """Check the shared budget between blocking backend operations."""
+        deadline = getattr(self._poll_context, "deadline", None)
+        remaining = (
+            DEFAULT_UPDATE_BUDGET if deadline is None else deadline - time.monotonic()
+        )
+        if remaining <= 0:
+            raise TimeoutError("IPMI poll deadline exceeded")
+        return remaining
+
+    def _http_timeout(self, *, max_read: float = DEFAULT_HTTP_TIMEOUT) -> tuple[float, float]:
+        """Budget connect and read phases within the remaining poll time."""
+        remaining = self._remaining_poll_time()
+        connect = min(DEFAULT_HTTP_CONNECT_TIMEOUT, remaining / 2)
+        return connect, min(max_read, remaining - connect)
+
     def update(self) -> None:
+        """Allow only one poll, even if an executor await has been cancelled."""
+        if not self._update_lock.acquire(blocking=False):
+            raise RuntimeError("Previous IPMI poll is still in flight")
+        self._poll_context.deadline = time.monotonic() + DEFAULT_UPDATE_BUDGET
+        try:
+            self._update_unlocked()
+        finally:
+            del self._poll_context.deadline
+            self._update_lock.release()
+
+    def _update_unlocked(self) -> None:
         """Refresh device info from the preferred backend(s)."""
         info = None
-        self.auth_failed = False
         self._last_rmcp_error = None
         self.last_backend = BACKEND_NONE
 
@@ -624,32 +736,39 @@ class IpmiServer:
         if self._should_try_addon():
             json = self.get_from_addon(None)
             if json is not None:
-                if not json.get("success"):
+                if json.get("success") is not True:
                     message = str(json.get("message", ""))
-                    _LOGGER.error(message)
-                    self.auth_failed = looks_like_auth_error(message)
+                    _LOGGER.error(
+                        "%s",
+                        redact_connection_secrets(message, self._password, self._kg_key),
+                    )
+                    self.auth_failed = self.auth_failed or looks_like_auth_error(message)
                     # Unsuccessful addon payload: try RMCP unless addon-only.
                     json = None
                 else:
                     self.last_backend = BACKEND_ADDON
 
             if json is None and self._should_try_rmcp():
+                self._remaining_poll_time()
                 json = self.get_from_rmcp()
                 if json is not None:
                     self.last_backend = BACKEND_RMCP
                 else:
-                    self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
+                    self.auth_failed = self.auth_failed or looks_like_auth_error(self._last_rmcp_error)
         elif self._should_try_rmcp():
+            self._remaining_poll_time()
             json = self.get_from_rmcp()
             if json is not None:
                 self.last_backend = BACKEND_RMCP
             else:
-                self.auth_failed = looks_like_auth_error(self._last_rmcp_error)
+                self.auth_failed = self.auth_failed or looks_like_auth_error(self._last_rmcp_error)
 
+        self._remaining_poll_time()
         if json is not None:
             info = IpmiDeviceInfo()
             info.device = json.get("device") if isinstance(json.get("device"), dict) else {}
-            info.power_on = bool(json.get("power_on"))
+            power_on = json.get("power_on")
+            info.power_on = power_on if isinstance(power_on, bool) else None
             info.sensors = normalize_addon_sensor_groups(
                 json.get("sensors"), sensor_types=SENSOR_TYPES
             )
@@ -705,7 +824,7 @@ class IpmiServer:
         if not self._should_try_rmcp():
             raise IpmiChassisCommandError(
                 f"Chassis command {addon_path} failed and RMCP is disabled by "
-                f"backend preference '{self._backend_preference}'"
+                "connection policy or backend preference"
             )
         self.run_rmcp_command(rmcp_command)
         _LOGGER.info("Chassis command %s succeeded via RMCP", addon_path)
@@ -732,10 +851,18 @@ class IpmiServer:
 
     def send_command(self, command: str, ignore_errors: bool) -> str:
         """Send a custom ipmitool-style command through the addon only."""
-        cmd = command.replace("$host$", self._host or "")
-        cmd = cmd.replace("$port$", str(self._port))
-        cmd = cmd.replace("$username$", self._username or "")
-        cmd = cmd.replace("$password$", self._password or "")
+        try:
+            cmd = substitute_command_fields(command, {
+                "host": self._host,
+                "port": self._port,
+                "username": self._username,
+                "password": self._password,
+            })
+        except ValueError as err:
+            if ignore_errors:
+                _LOGGER.error("%s", err)
+                return ""
+            raise
 
         # Pass the command in the request body/params (not baked into the path)
         # so POST keeps the ipmitool string out of the URL when supported.
@@ -746,7 +873,7 @@ class IpmiServer:
                 "send_command requires the ipmi-server addon or standalone HTTP API; "
                 f"addon unreachable or backend preference is "
                 f"'{self._backend_preference}' (last backend={self.last_backend}). "
-                f"Command not sent: {command}"
+                "Command could not be sent."
             )
             if ignore_errors:
                 _LOGGER.error(err)
@@ -754,9 +881,7 @@ class IpmiServer:
             raise RuntimeError(err)
 
         if not addon_action_succeeded(response):
-            err = "Error executing command: {}, Error: {}".format(
-                command, response.get("output", response)
-            )
+            err = "Addon command failed; check addon status and connection settings"
             if ignore_errors:
                 _LOGGER.error(err)
                 return ""

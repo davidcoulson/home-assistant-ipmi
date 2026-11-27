@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from typing import Final
 
@@ -185,7 +186,11 @@ def create_entity_sensors(
     """Create entities for newly discovered sensors, respecting options filters."""
     coordinator = ipmi_data[COORDINATOR]
     data = ipmi_data[IPMI_DATA]
-    status = coordinator.data
+    # Discovery is signalled after the server stores its new snapshot, before
+    # the coordinator publishes it. Read that snapshot for this notification.
+    status = data.device_info
+    if status is None:
+        return
     entities = []
 
     enabled_types = set(
@@ -295,17 +300,13 @@ class IpmiSensor(
         """Return True if entity is available."""
         if not super().available:
             return False
-        status = self.coordinator.data
-
         if self.entity_description.key == KEY_STATUS:
             return True
-        else:
-            if len(status.states) == 0:
-                return False
-
-            state = status.states.get(self.entity_description.key, None)
-
-            return state is not None
+        status = self.coordinator.data
+        return (
+            status is not None
+            and status.states.get(self.entity_description.key) is not None
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, str] | None:
@@ -325,7 +326,9 @@ class IpmiSensor(
         status = self.coordinator.data
 
         if self.entity_description.key == KEY_STATUS:
-            if status.power_on:
+            if status.power_on is None:
+                return None
+            if status.power_on is True:
                 return STATE_ON
             else:
                 return STATE_OFF
@@ -336,7 +339,11 @@ class IpmiSensor(
             state = status.states.get(self.entity_description.key, None)
 
             if state is not None:
-                return float(state)
+                try:
+                    value = float(state)
+                except (TypeError, ValueError, OverflowError):
+                    return None
+                return value if math.isfinite(value) else None
             # Missing reading → None (not STATE_UNKNOWN) for numeric sensors.
             return None
 
@@ -398,23 +405,32 @@ class IpmiEnergySensor(
         """Restore accumulated energy after restart."""
         await super().async_added_to_hass()
         if (last_sensor_data := await self.async_get_last_sensor_data()) is not None:
-            if last_sensor_data.native_value is not None:
-                self._energy_kwh = float(last_sensor_data.native_value)
+            try:
+                restored = float(last_sensor_data.native_value)
+            except (TypeError, ValueError, OverflowError):
+                restored = None
+            if restored is not None and math.isfinite(restored) and restored >= 0:
+                self._energy_kwh = restored
         self._last_integration_time = dt_util.utcnow()
+
+    def _power_sample(self) -> float | None:
+        """Return a finite reading, or None when this observation is missing."""
+        status = self.coordinator.data
+        try:
+            value = float(status.states.get(self._power_sensor_key)) if status else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return value if value is not None and math.isfinite(value) else None
 
     @property
     def available(self) -> bool:
-        """Return True when power monitoring is active and the reading exists."""
-        if not super().available:
-            return False
-        if not self._energy_monitoring_enabled():
-            return False
-        if not self._source_power_entity_enabled():
-            return False
-        status = self.coordinator.data
-        if not status.states:
-            return False
-        return self._power_sensor_key in status.states
+        """Return True when the coordinator and source power reading are valid."""
+        return (
+            super().available
+            and self._energy_monitoring_enabled()
+            and self._source_power_entity_enabled()
+            and self._power_sample() is not None
+        )
 
     @property
     def native_value(self) -> float:
@@ -424,35 +440,24 @@ class IpmiEnergySensor(
     @callback
     def _handle_coordinator_update(self) -> None:
         """Integrate the latest power sample when the coordinator updates."""
-        if not self._energy_monitoring_enabled() or not self._source_power_entity_enabled():
-            self._last_integration_time = dt_util.utcnow()
-            super()._handle_coordinator_update()
-            return
-
-        status = self.coordinator.data
         now = dt_util.utcnow()
-
-        if not self.coordinator.last_update_success:
-            # Do not integrate across an outage: re-seed on the next good poll.
+        current_power_w = self._power_sample() if self.available else None
+        if current_power_w is None:
+            # A missing observation breaks the integration interval. Recovery
+            # establishes a new baseline instead of bridging an outage.
             self._last_power_w = None
-            self._last_integration_time = now
-            super()._handle_coordinator_update()
-            return
-
-        if self._last_integration_time is None:
-            self._last_integration_time = now
-
-        if status.states:
-            power_raw = status.states.get(self._power_sensor_key)
-            if power_raw is not None:
-                current_power_w = float(power_raw)
-                elapsed = (now - self._last_integration_time).total_seconds()
-                self._energy_kwh = integrate_power_left_riemann(
-                    previous_power_w=self._last_power_w,
-                    elapsed_seconds=elapsed,
-                    accumulated_kwh=self._energy_kwh,
-                )
-                self._last_power_w = current_power_w
+        else:
+            elapsed = (
+                (now - self._last_integration_time).total_seconds()
+                if self._last_integration_time is not None
+                else 0
+            )
+            self._energy_kwh = integrate_power_left_riemann(
+                previous_power_w=self._last_power_w,
+                elapsed_seconds=elapsed,
+                accumulated_kwh=self._energy_kwh,
+            )
+            self._last_power_w = current_power_w
 
         self._last_integration_time = now
         super()._handle_coordinator_update()

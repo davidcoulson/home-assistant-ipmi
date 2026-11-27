@@ -37,7 +37,9 @@
           "addon_port": "ipmi-server 端口",
           "addon_interface": "ipmitool 接口",
           "addon_extra_params": "额外的 ipmitool 参数",
-          "backend_preference": "连接后端偏好"
+          "backend_preference": "连接后端偏好",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "可选。需要 ipmi-server 插件支持；python-ipmi 后备模式不支持此项。",
@@ -82,7 +84,9 @@
           "addon_port": "ipmi-server 端口",
           "addon_interface": "ipmitool 接口",
           "addon_extra_params": "额外的 ipmitool 参数",
-          "backend_preference": "连接后端偏好"
+          "backend_preference": "连接后端偏好",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "backend_preference": "auto = 优先尝试插件，然后是 RMCP（历史默认值）。rmcp = 仅使用 python-ipmi（跳过插件探测）。警告：send_command 服务需要插件支持，在 rmcp 模式下无法工作。"
@@ -163,7 +167,8 @@
           "sensor_types": "要发现的传感器类型",
           "backend_preference": "连接后端偏好",
           "create_energy_sensors": "根据功率读数创建能耗传感器",
-          "power_off_delay": "电源开关关闭延迟（秒）"
+          "power_off_delay": "电源开关关闭延迟（秒）",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "sensor_types": "仅为新发现的传感器创建所选类型的实体。对于功能有限的 BMC（例如 Sipeed NanoKVM），请留空以仅进行电源监控。",

@@ -41,7 +41,9 @@
           "sensor_types": "Τύποι αισθητήρων προς ανακάλυψη",
           "backend_preference": "Προτίμηση backend σύνδεσης",
           "create_energy_sensors": "Δημιουργία αισθητήρων ενέργειας από μετρήσεις ισχύος",
-          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)"
+          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Προαιρετικό. Απαιτεί το addon ipmi-server· δεν υποστηρίζεται από το python-ipmi fallback.",
@@ -80,7 +82,9 @@
           "sensor_types": "Τύποι αισθητήρων προς ανακάλυψη",
           "backend_preference": "Προτίμηση backend σύνδεσης",
           "create_energy_sensors": "Δημιουργία αισθητήρων ενέργειας από μετρήσεις ισχύος",
-          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)"
+          "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)",
+          "legacy_addon_query_auth": "Legacy addon: send credentials in query URLs (insecure)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "kg_key": "Προαιρετικό. Απαιτεί το addon ipmi-server· δεν υποστηρίζεται από το python-ipmi fallback.",
@@ -156,7 +160,8 @@
           "backend_preference": "Προτίμηση backend σύνδεσης",
           "create_energy_sensors": "Δημιουργία αισθητήρων ενέργειας από μετρήσεις ισχύος",
           "minimal_ipmi": "Minimal IPMI (μόνο τροφοδοσία)",
-          "power_off_delay": "Καθυστέρηση διακόπτη απενεργοποίησης (δευτερόλεπτα)"
+          "power_off_delay": "Καθυστέρηση διακόπτη απενεργοποίησης (δευτερόλεπτα)",
+          "allow_legacy_rmcp": "Allow legacy RMCP (IPMI 1.5) for lanplus or Kg key connections"
         },
         "data_description": {
           "sensor_types": "Μόνο οι επιλεγμένοι τύποι δημιουργούνται για νέους αισθητήρες. Η προεπιλογή αντιστοιχεί στην προηγούμενη συμπεριφορά (όλοι οι τύποι).",

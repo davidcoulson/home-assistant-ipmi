@@ -12,7 +12,16 @@ from homeassistant.core import HomeAssistant
 from .const import CONF_KG_KEY, COORDINATOR, DEFAULT_BACKEND_PREFERENCE, IPMI_DATA
 from .helpers import get_ipmi_server
 
-TO_REDACT = {CONF_PASSWORD, CONF_KG_KEY, "password", "kg_key"}
+TO_REDACT = {
+    CONF_PASSWORD,
+    CONF_KG_KEY,
+    "password",
+    "kg_key",
+    "addon_url",
+    "ipmi_server_host",
+    "addon_extra_params",
+    "last_rmcp_error",
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -32,7 +41,7 @@ async def async_get_config_entry_diagnostics(
             if isinstance(sensors, dict)
         }
 
-    return {
+    diagnostics = {
         "entry": {
             "title": entry.title,
             "data": async_redact_data(dict(entry.data), TO_REDACT),
@@ -75,3 +84,4 @@ async def async_get_config_entry_diagnostics(
         if device_info and device_info.states
         else [],
     }
+    return async_redact_data(diagnostics, TO_REDACT)
